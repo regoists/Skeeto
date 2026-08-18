@@ -1,0 +1,18 @@
+# Build
+/dist/
+/src/obj/
+/src/skeeto_version.generated.h
+*.dll
+*.pdb
+*.lib
+*.exp
+*.obj
+*.ilk
+
+# Logs / editor
+*.log
+*.tmp
+Thumbs.db
+.DS_Store
+.vscode/
+.idea/

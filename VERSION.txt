@@ -1,0 +1,5 @@
+Skeeto 1.4.0
+released=2026-08-18
+semver=1.4.0
+module=custom-hud-listen-lobby
+note=custom HUD, hide vanilla HUD pieces, listen-host lobby coop
