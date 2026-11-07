@@ -1,0 +1,33 @@
+# Ignore heavy/generated files so Cursor indexing does not OOM.
+# Source under src/, packages/*/source, and docs stays indexed.
+
+archive/
+tools/llvm-mingw-i686/
+tools/llvm-mingw-ucrt-i686.zip
+tools/7zip/
+tools/ffmpeg/
+tools/local/
+website/
+
+*.vpk
+*.vtf
+*.mp3
+*.mp4
+*.wav
+*.pcf
+*.smx
+*.pdb
+*.obj
+*.o
+*.zip
+*.7z
+*.log
+*.dll
+*.exe
+
+assets/*_frames/
+assets/*_frames_256/
+**/*_frames/
+**/*_frames_256/
+
+src/skeeto/obj/

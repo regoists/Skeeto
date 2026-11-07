@@ -1,0 +1,5 @@
+Skeeto 2.2.14
+released=2026-11-07
+semver=2.2.14
+module=steam-bootstrap-transactional-update
+note=Supply radar menu icons and scale crash fix, timed cleardecals, SI/common W-model scale, viewmodel scale

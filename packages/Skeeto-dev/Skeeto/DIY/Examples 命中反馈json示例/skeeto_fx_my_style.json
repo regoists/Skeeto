@@ -1,0 +1,42 @@
+{
+  "id": "fx_my_style",
+  "name": "特殊击杀 · 我的样式",
+  "channel": "fx",
+  "sort": 100,
+  "streak": { "enabled": false, "wrap": 0, "priority": 0 },
+  "skeet": {
+    "priority": 0,
+    "overlay": "",
+    "particle": "my_skeet_fx",
+    "sound": "skeeto/fx/my_style/skeet.mp3",
+    "world": true
+  },
+  "melee_skeet": {
+    "priority": 0,
+    "overlay": "",
+    "particle": "my_melee_skeet_fx",
+    "sound": "skeeto/fx/my_style/melee_skeet.mp3",
+    "world": true
+  },
+  "headshot_skeet": {
+    "priority": 0,
+    "overlay": "",
+    "particle": "my_hs_skeet_fx",
+    "sound": "skeeto/fx/my_style/headshot_skeet.mp3",
+    "world": true
+  },
+  "crown": {
+    "priority": 0,
+    "overlay": "",
+    "particle": "my_crown_fx",
+    "sound": "",
+    "world": true
+  },
+  "crit_text": {
+    "priority": 0,
+    "overlay": "skeeto/effects/my_style/crit",
+    "particle": "",
+    "sound": "",
+    "world": true
+  }
+}

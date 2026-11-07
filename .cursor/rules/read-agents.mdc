@@ -1,0 +1,12 @@
+---
+description: Project rules entry. Always read and follow AGENTS.md at the repository root; do not put substantive rules in this directory.
+alwaysApply: true
+---
+
+# Read AGENTS.md
+
+This repository has one authoritative project-rules document: `AGENTS.md` at the repo root.
+
+- Read `AGENTS.md` in full and follow it.
+- `.cursor/rules/` is only an entry point; it must not duplicate or override `AGENTS.md`. If they appear to conflict, `AGENTS.md` wins.
+- When changing project constraints, edit only `AGENTS.md`; do not add topical rules here.

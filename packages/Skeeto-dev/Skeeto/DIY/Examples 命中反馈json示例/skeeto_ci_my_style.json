@@ -1,0 +1,31 @@
+{
+  "id": "ci_my_style",
+  "name": "普感 · 我的样式",
+  "channel": "ci",
+  "sort": 100,
+  "streak": { "enabled": false, "wrap": 0, "priority": 10 },
+  "hit": {
+    "priority": 0,
+    "overlay": "skeeto/ci/my_style/hit",
+    "particle": "",
+    "sound": "skeeto/ci/my_style/hit.mp3"
+  },
+  "kill": {
+    "priority": 10,
+    "overlay": "skeeto/ci/my_style/kill",
+    "particle": "",
+    "sound": "skeeto/ci/my_style/kill.mp3"
+  },
+  "headshot": {
+    "priority": 100,
+    "overlay": "skeeto/ci/my_style/headshot",
+    "particle": "",
+    "sound": "skeeto/ci/my_style/headshot.mp3"
+  },
+  "melee": {
+    "priority": 110,
+    "overlay": "skeeto/ci/my_style/melee",
+    "particle": "",
+    "sound": "skeeto/ci/my_style/melee.mp3"
+  }
+}

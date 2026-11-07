@@ -1,0 +1,220 @@
+﻿Skeeto 指令速查
+
+在游戏控制台输入以下指令。方括号表示可选参数，尖括号表示必填参数；绑定按键时使用 bind <按键> <指令>。
+
+ConCommand（控制台命令）
+
+skeeto_escmenu [0|1|home|native|edit|status]
+    自定义局内 ESC 菜单，默认关闭。0 关闭，1 开启，home 打开 Skeeto ESC 首页，native 本次使用原生菜单，edit 打开编辑器，status 或不带参数输出模块状态。进入地图后使用；布局与自定义主菜单独立。
+    Custom in-game ESC menu, disabled by default. 0 off, 1 on, home opens Skeeto, native uses the stock menu for this visit, edit opens the editor, status/no argument reports state. For use in a map; its layout is independent from the main menu.
+skeeto_escmenu_native
+    打开原生 ESC 菜单；可 bind <按键> skeeto_escmenu_native。
+    Open the native ESC menu; bindable.
+skeeto_escmenu_home
+    打开 Skeeto ESC 菜单；可 bind <按键> skeeto_escmenu_home。
+    Open the Skeeto ESC menu; bindable.
+skeeto_escmenu_edit
+    打开 ESC 布局编辑器；未应用草稿在本次进程中保留，需“应用并保存”才写入当前布局。
+    Open the ESC layout editor. Unapplied drafts remain in this process; Apply and save writes the active layout.
+skeeto_hud_pause [0|1]
+    控制自定义 HUD 绘制与数据采集的总暂停；0 恢复，1 暂停，不带参数切换。使用既有暂停逻辑，不改各 HUD 子开关；准星显隐使用 skeeto_xhair_toggle。
+    Pause/resume custom HUD drawing and sampling: 0 resume, 1 pause, no argument toggles. Preserves individual HUD switches; crosshair visibility uses skeeto_xhair_toggle.
+
+skeeto_menu
+    打开或关闭 Skeeto 菜单。
+skeeto_mainmenu [0|1|home|native|edit|status]
+    启用或关闭自定义主菜单；默认关闭。home/1 启用，native 或 0 切回原版，edit 打开编辑器，status 查看状态；不带参数时切换。
+    首次启用时仅给空闲的 F3 / F4 / F5 添加默认绑定；已有绑定不覆盖。支持主菜单设置或游戏 bind / unbind 改绑，解绑后不会自动补回。
+skeeto_mainmenu_native
+    显示原版主菜单；例如 bind F3 skeeto_mainmenu_native。
+skeeto_mainmenu_home
+    显示 Skeeto 主菜单；例如 bind F4 skeeto_mainmenu_home，unbind F4 解绑。
+skeeto_mainmenu_edit
+    进入或退出主菜单编辑模式；例如 bind F5 skeeto_mainmenu_edit。退出时未应用草稿会丢弃。
+skeeto_mainmenu_bg_rgb <R> <G> <B> | reset
+    设置统一面板背景颜色，各通道 0-255；reset 恢复黑色。主菜单设置可切换统一颜色或跟随按钮颜色。
+skeeto_mainmenu_background [0|1]
+    暂时隐藏 Skeeto 与原版主菜单，只看当前主菜单背景；关闭控制台后生效，Esc 恢复，0 也可退出。
+skeeto_viewmodel_mirror [0|1|toggle]
+    全局完整 V 模镜像：0 关闭，1 开启，不带参数或 toggle 切换；选择全局控制模式，开启时同时启用持枪视角调整。
+    可绑定 bind <按键> skeeto_viewmodel_mirror，或在游戏键盘 / 鼠标设置中的 Skeeto 追加项里绑定。
+    Global full-viewmodel mirroring: 0 off, 1 on, no argument or toggle switches. Selects global mode; enabling also enables viewmodel adjustment.
+
+skeeto_hud_toggle [0|1]
+    切换全部 Skeeto 自定义 HUD 的隐藏状态；0 显示，1 隐藏，不带参数时切换。
+skeeto_world_hud_toggle [0|1]
+    切换全部 Skeeto 世界 HUD 的隐藏状态；0 显示，1 隐藏，不带参数时切换。
+世界 HUD 人物名字：
+  skeeto_world_names_color R G B    精确设置文字颜色，三个分量为 0–255，保存到 Skeeto 设置。
+  skeeto_world_names_color default  恢复默认淡蓝白；不带参数查询当前颜色。
+  skeeto_world_names_size 12..22    设置字号，按偶数档位规范化；默认 14。
+  skeeto_world_names_size default   恢复默认字号；不带参数查询当前字号。
+
+skeeto_xhair_toggle [0|1]
+    切换全部 Skeeto 准星的隐藏状态；0 显示，1 隐藏，不带参数时切换。
+skeeto_ui_reload
+    重建 Skeeto 字体和界面贴图缓存，不切换显示模式。
+skeeto_ui_videomode_reload
+    短暂切换显示模式后重建 Skeeto 字体；仅在界面异常时使用。
+skeeto_clear_datacache
+    清理游戏中未锁定的 datacache 缓存，并在控制台显示释放量；不依赖 L4N 或内存 HUD。仅在地图中执行，手动清理间隔至少 5 秒。
+
+skeeto_crashguard_status
+    查询 Datacache 与 index_buffer_size 防闪退补丁的本次启动状态和运行时容量（只读）。
+skeeto_cache_status
+    查询缓存搬运状态、外置数据与取回/回收计数。
+skeeto_cache_reclaim
+    请求回收 Skeeto 已外置缓存；缓存搬运未在本次启动开启时无操作。
+skeeto_tps_aim 0|1|status
+    关闭 / 开启第三人称居中瞄准修正，或查询状态；不带参数时查询。
+skeeto_hold_semiauto 0|1|status
+    关闭 / 开启半自动武器按住开火，或查询状态；不带参数时查询。
+
+skeeto_background_toggle
+    打开或关闭主菜单背景引擎。
+skeeto_background_next
+    切换到下一个背景资源。
+skeeto_background_reload
+    重新扫描 backgrounds 目录及 VPK 资源。
+skeeto_background_pause [0|1]
+    暂停 / 继续主菜单 MP4 背景；不带参数切换，1 暂停，0 继续。
+
+skeeto_nav [0|1]
+    打开或关闭小地图导航与物资标记；不带参数时切换。
+skeeto_nav_reload
+    重新读取当前地图的 NAV 文件；导航关闭时不执行。
+skeeto_nav_goal [auto|1..N]
+    选择安全屋候选；不带参数时循环切换，auto 恢复自动选择。
+
++skeeto_tab / -skeeto_tab
+    按住显示 Skeeto TAB 面板，双击显示原版计分板；绑定时只写 +skeeto_tab。
++skeeto_tab_vanilla / -skeeto_tab_vanilla
+    按住显示原版计分板，双击显示 Skeeto TAB 面板；绑定时只写 +skeeto_tab_vanilla。
++skeeto_chapterstats / -skeeto_chapterstats
+    按住查看本章统计；需要开启章节结算面板。绑定时只写 +skeeto_chapterstats。
+skeeto_chapstats_score_reload
+    从 DLL 同目录的 skeeto_chapstats_score.ini 重载评分权重。
+skeeto_tab_board_bg_rgb <R> <G> <B>
+    设置 TAB 面板的自定义背景色。RGB 各为 0-255；不带参数时显示当前值。
+skeeto_chapter_stats_bg_rgb <R> <G> <B>
+    设置章节结算面板的自定义背景色。RGB 各为 0-255；不带参数时显示当前值。
+
+skeeto_acid_outline_toggle [0|1]
+    打开或关闭口水酸液范围估算轮廓；不带参数时切换。
+skeeto_tank_prop_outline [0|1]
+    打开或关闭合作战役中的 Tank 可交互铁描边；仅在有存活 Tank 时显示，不带参数时切换。
+skeeto_witch_outline [0|1]
+    打开或关闭合作战役 Witch 常驻描边；存活期间平静或惊扰状态均可显示，不带参数时切换。
+skeeto_tank_outline [0|1]
+    打开或关闭合作战役 Tank 本体常驻描边，不带参数时切换。
+skeeto_laser_outline [0|1]
+    打开或关闭地面可拾取激光瞄准器常驻描边；仅检查 2000 游戏单位内的原版物品，不带参数时切换。
+
+skeeto_supply_scan
+    扫描周围可拾取物资并按种类穿墙描边。需先在菜单开启，不带参数。可 bind <按键> skeeto_supply_scan。
+    Outline nearby pickups through walls by category. Turn it on in the menu first. No arguments. Bindable.
+skeeto_interact_scan
+    短暂描边周围按钮、门、动态模型和部分物理/可破坏道具。需先在菜单开启，不带参数。可 bind <按键> skeeto_interact_scan。可误报，不含地上物资。
+    Briefly outline nearby buttons, doors, dynamic props, and some physics/breakable props. Turn it on in the menu first. No arguments. Bindable. False positives expected; ground supplies excluded.
+skeeto_bug_teleport
+    传送到最近的无敌 Bug 点。只在自己开的本地服、并且已经打开「显示无敌Bug点」时生效。
+    Teleport to the nearest invincible bug spot. Listen host only, and only after the spots are turned on.
+
+skeeto_spotlight
+    打开或关闭客户端聚光灯视野。
+skeeto_spotlight_brightness <20-200>
+    设置聚光灯亮度百分比。
+skeeto_spotlight_radius <250-1200>
+    设置聚光灯半径，单位为 Source 单位。
+skeeto_spotlight_color <R> <G> <B>
+    设置聚光灯颜色，RGB 各为 0-255。
+
+skeeto_character_change [0|1]
+    打开或关闭本地服换人物功能；不带参数时切换。
+skeeto_character <nick|rochelle|coach|ellis|bill|zoey|francis|louis>
+    在本地服切换人物；须先开启换人物功能。支持角色首字母缩写。
+skeeto_bot_names <0|1>
+    打开或关闭自定义生还者 BOT 名称。
+skeeto_bot_name_<角色名> "名称" | reset
+    设置或重置指定角色的 BOT 名称；角色名支持 nick、rochelle、coach、ellis、bill、zoey、francis、louis。
+skeeto_glow_<角色名> <R> <G> <B> | preset | default
+    设置指定角色的发光颜色，或使用预设、恢复默认；角色名同上。
+
+skt_cvar <名称> [值]
+    查询或修改指定 ConVar；skeeto_cvar 是同一命令的别名。此命令可能绕过原本限制，请谨慎使用。
+skt_cfg <on|off|list|next|prev|apply|reload|set 名称>
+    管理配置覆盖预设；skeeto_cfg 是同一命令的别名。
+skt_cfg_next / skt_cfg_prev / skt_cfg_apply
+    切换到下一个预设、上一个预设，或执行当前预设；可分别绑定按键。
+
+skeeto_render_probe [off]
+    采样 10 秒渲染耗时；off 提前停止。默认不采样。
+skeeto_dump_render_state
+    输出地图、VGUI 缓存和渲染探针状态。排查掉帧时先采样，再执行本命令并保存完整输出。
+
+skeeto_fast_load <0-32767>
+    以位掩码设置本次会话：1 总开关，2 重复路径复用，4 VPK筛选，8 网格与碰撞异步，16 失焦等待，32 本地开局固定等待，64 提前显示游戏画面，128 本地过关切图等待(Beta)，256 动画异步，512 减少模型强制入缓存，1024 减少模型预热，2048 减少强制预载，4096 跳过非当前地图包，8192 更细的文件过滤，16384 减少纹理强制预热。按位相加组合，0 全关；菜单可分别控制网格和碰撞。32/128仅单人或自己开房有效，影响全房；128有黑色加载背景及出安全屋异常加载的已知问题。64不解除服务器冻结，也不代表更早可以操作。512/1024/2048仅在加载时临时调整，效果待验证。4096/8192/16384为默认关闭的实验，未证明稳定净收益；16384可能推迟纹理上传并在首次可见时卡顿。命令不立即保存；之后通过菜单保存设置时会一并保存当前开关。诊断由 skeeto_load_probe 控制。
+    Session bitmask: 1 master, 2 path reuse, 4 VPK filtering, 8 mesh and collision async, 16 background wait, 32 local start countdown, 64 early game view, 128 local chapter transition wait (Beta), 256 animation async, 512 reduce forced model caching, 1024 reduce model warm-up, 2048 reduce forced preloading, 4096 skip other map packs, 8192 finer file filtering, 16384 reduce forced texture warm-up. Combine bits; 0 disables all. Mesh/collision can be controlled independently in the menu. Bits 32/128 affect self-hosted rooms only; 128 has known black-background and unexpected-loading issues. Bit 64 does not unfreeze the team or allow earlier control. Bits 512/1024/2048 temporarily adjust loading settings and remain experimental. Bits 4096/8192/16384 are disabled-by-default experiments without proven stable net benefit; 16384 may defer texture uploads and cause a hitch on first visibility. No immediate save; later menu saves include current switches. Diagnostics use skeeto_load_probe.
+skeeto_load_probe [0|1|reset|status]
+    本次会话关闭 / 开启加载统计，或清零 / 输出统计；不带参数等同 status。只输出到控制台，不写日志文件。
+    Disable/enable loading counters for this session, reset them, or print status (default). Console output only.
+
+skeeto_chat_ui [status|on|off|reset|set <key> <整数>|color <目标> <R> <G> <B>]
+    管理原生聊天框样式，默认关闭。set 使用 chat_ui_ 后的字段名；color 目标为 text/input/background/input_background/survivor/infected，RGB 各为0-255。位置、大小和消息停留时间也可在菜单中设置。
+    Native chat appearance, disabled by default. set uses the field name without chat_ui_; color targets are text/input/background/input_background/survivor/infected, each RGB component 0-255.
+skeeto_console_ui [status|on|off|reset|set <key> <整数>|color <目标> <R> <G> <B>]
+    管理原生控制台样式，默认关闭。set 使用 console_ui_ 后的字段名；color 目标为 text/input/background/input_background/developer/title_text/title_background，RGB 各为0-255。原生窗口继续管理位置与大小。
+    Native console appearance, disabled by default. set uses the field name without console_ui_; color targets are text/input/background/input_background/developer/title_text/title_background, each RGB component 0-255. The native window retains geometry control.
+skeeto_plugins [open|status|on|off|refresh]
+    打开插件平台、查看加载状态、修改下次启动加载开关或刷新当前插件页。on/off 需要完全退出并重启游戏；插件入口位于 bin\skeeto\plugins\。这是一个 ConCommand，不是 ConVar。
+    Opens the plugin platform, reports loading status, changes next-start loading or refreshes the current plugin page. on/off requires a full restart. Entry DLLs go in bin\skeeto\plugins\; this is one ConCommand.
+
+
+ConVar（控制台变量）
+
+skeeto_background_volume <0-100>
+    背景视频音量。
+skeeto_audio_mixer_enabled <0|1>
+    分类音量调节总开关。
+skeeto_audio_gunfire_volume <0-100>
+skeeto_audio_weapon_handling_volume <0-100>
+skeeto_audio_melee_volume <0-100>
+skeeto_audio_chainsaw_volume <0-100>
+skeeto_audio_footstep_volume <0-100>
+skeeto_audio_survivor_voice_volume <0-100>
+skeeto_audio_special_infected_volume <0-100>
+skeeto_audio_common_infected_volume <0-100>
+skeeto_audio_tank_volume <0-100>
+skeeto_audio_witch_volume <0-100>
+skeeto_audio_explosion_volume <0-100>
+skeeto_audio_throwable_volume <0-100>
+skeeto_audio_ambient_volume <0-100>
+skeeto_audio_ui_volume <0-100>
+skeeto_audio_vehicle_volume <0-100>
+skeeto_audio_item_volume <0-100>
+skeeto_audio_script_cue_volume <0-100>
+    分别调节 Audio Mixer 对应分类的音量。弹药提示音是空仓射击、低弹药点击和换弹弹匣落地的共用音量。
+skeeto_audio_hit_sfx_volume <0-100>
+    Skeeto 命中反馈音量，不受分类音量总开关控制。
+skeeto_safe_music_volume <0-100>
+    自定义安全屋结算音乐的独立音量，与功能菜单、Audio Mixer 共用；不受游戏音乐音量或分类音量总开关控制。
+skeeto_last_music_volume <0-100>
+    雨爱音乐的独立音量，与雨爱设置页和 Audio Mixer 共用；不受游戏音乐音量或分类音量总开关控制。
+
+启动项（填入游戏启动选项）
+
+-skeeto_debug
+    仅本次启动强制开启 skeeto.log 调试日志；不修改 ini 中保存的开关。
+-hide_skeeto
+    本次启动隐藏 Skeeto 功能，用于排查兼容性问题。
+-skeeto_particle_platform <0|1>
+    仅本次启动覆盖粒子平台设置；不修改菜单保存的默认值。
+
+-skeeto_necola <0|1>
+    仅本次启动覆盖 Necola 启动联动；不修改菜单保存的开关。
+-skeeto_plugin_platform <0|1>
+    仅本次启动覆盖插件平台“启动时加载插件”；不修改菜单保存的开关。
+
+-skeeto_boot_probe
+    仅本次启动记录限量加载诊断到 skeeto_bootstrap_probe.log；默认关闭，不修改用户设置。
+    Record limited loading diagnostics for this launch only; disabled by default, without changing user settings.

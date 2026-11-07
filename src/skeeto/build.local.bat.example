@@ -1,0 +1,6 @@
+@echo off
+rem Copy this file to build.local.bat in the same folder and edit for THIS machine.
+rem build.local.bat is gitignored and must not be committed.
+
+rem Replace the next line with this machine's Left 4 Dead 2 install path:
+set "GAME_ROOT=C:\Program Files (x86)\Steam\steamapps\common\Left 4 Dead 2"

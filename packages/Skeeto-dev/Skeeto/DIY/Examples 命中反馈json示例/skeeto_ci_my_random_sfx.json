@@ -1,0 +1,33 @@
+{
+  "id": "ci_my_random_sfx",
+  "name": "普感 · 随机音效示例",
+  "channel": "ci",
+  "sort": 101,
+  "streak": { "enabled": false, "wrap": 0, "priority": 10 },
+  "hit": {
+    "priority": 0,
+    "overlay": "skeeto/ci/my_style/hit",
+    "particle": "",
+    "sound": "skeeto/ci/my_style/hit.mp3",
+    "sounds": [
+      "skeeto/ci/my_style/hit_a.mp3",
+      "skeeto/ci/my_style/hit_b.mp3",
+      "skeeto/ci/my_style/hit_c.mp3"
+    ]
+  },
+  "kill": {
+    "priority": 10,
+    "overlay": "skeeto/ci/my_style/kill",
+    "particle": "",
+    "sounds": [
+      "skeeto/ci/my_style/kill_a.mp3",
+      "skeeto/ci/my_style/kill_b.mp3"
+    ]
+  },
+  "headshot": {
+    "priority": 100,
+    "overlay": "skeeto/ci/my_style/headshot",
+    "particle": "",
+    "sound": "skeeto/ci/my_style/headshot.mp3"
+  }
+}

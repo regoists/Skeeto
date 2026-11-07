@@ -1,0 +1,10 @@
+interface:
+  display_name: "REA 通用逆向分析"
+  short_description: "用于 Skeeto Source/L4D2 x86 DLL 以外的发行文件和运行证据分析"
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "rea"
+      description: "本机 REA MCP；Source/L4D2 DLL 使用 Ghidra 只读分析"
+policy:
+  allow_implicit_invocation: true

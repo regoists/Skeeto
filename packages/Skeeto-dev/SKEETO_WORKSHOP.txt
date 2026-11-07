@@ -1,0 +1,6 @@
+SkeetoWorkshopPackage=1
+format=zip-as-vpk
+workshop_id=3787239937
+install_layout=2
+update_protocol=1
+engine_sha256=ccee7a8b45d66fad92aa790cc85089c4f7ae5109e8b440db9ac2f003ef9708be

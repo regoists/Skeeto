@@ -1,0 +1,6 @@
+interface:
+  display_name: "Skeeto HUD and UI design"
+  short_description: "Route design by in-game, world, overlay, main-menu, and ESC modules"
+  default_prompt: "Use $skeeto-hud-design. First decide whether this is custom in-game HUD, world HUD, overlay HUD, main-menu UI, or ESC-menu UI, then read that module branch. Ground the work in the current implementation and user-accepted finished pieces. Pursue design quality on a lightweight base; do not mix config, coordinates, input, or lifecycle across modules."
+policy:
+  allow_implicit_invocation: true

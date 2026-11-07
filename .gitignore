@@ -1,0 +1,118 @@
+# ============================================================
+# Skeeto — working tree gitignore
+# Private and public repos share this layout.
+# Keep source, tests, tracked docs and assets; leave out archives,
+# toolchains, machine-local paths, extras, and unpublished docs.
+# Backup of previous file: .gitignore.bak-* in repo root.
+# ============================================================
+
+# --- OS / editor junk ---
+Thumbs.db
+Desktop.ini
+.DS_Store
+*.log
+*.tmp
+*.swp
+*~
+.vscode/
+.idea/
+.vs/
+
+# --- Build residues (anywhere) ---
+*.obj
+*.exp
+*.lib
+*.pdb
+*.ilk
+*.idb
+*.ipdb
+*.iobj
+src/skeeto/obj/
+**/skeeto_version.generated.h
+
+# --- Prebuilt binaries (do not commit) ---
+*.dll
+*.exe
+
+# --- Machine-local path overrides (do not commit) ---
+src/skeeto/build.local.bat
+
+# --- Local development handoffs (skill itself stays versioned) ---
+/.codex/handoffs/
+/.agents/skills/**/__pycache__/
+/.agents/skills/**/*.pyc
+
+# --- Large / one-time-copy material (not day-to-day sync) ---
+/archive/
+/reference/
+/release/
+/.release_work/
+
+# --- Legacy / unused bundled toolchains (use a system MSVC install) ---
+/tools/ffmpeg/
+/tools/llvm-mingw-i686/
+/tools/llvm-mingw-ucrt-i686.zip
+/tools/7zip/
+/tools/_vpk_bf5_check/
+/tools/_vpk_check2/
+/tools/__pycache__/
+/tools/*.pyc
+/tools/local/
+
+# One-off review, dump and reverse helpers (keep locally, do not publish)
+/tools/_review_*.py
+/tools/_scan_dump_*.py
+/tools/_parse_mdmp.py
+/tools/setup_reverse_tools.ps1
+/tools/show_reverse_tools.ps1
+/tools/sync_skeeto_user_skills.py
+/tools/restore_skeeto_architecture.py
+
+# --- Scratch / temp worktrees ---
+/_review_tmp/
+/.codex-remote-attachments/
+/_tmp_*/
+/tmp_*/
+/_tmp_exit_waiter/
+/_tmp_release_*/
+/_tmp_ws_matrix/
+
+# --- Optional: keep root stray objs out ---
+/*.obj
+
+# NOTE:
+# - Source of truth: src/skeeto/** (except obj / generated / build.local.bat)
+# - Tracked docs: docs/START_HERE.txt and docs/agent-guides/ only
+# - extras/ is local-only; assets/ may be tracked
+# - AGENTS, README, LICENSE, VERSION : tracked
+# - Prebuilt DLL/EXE products are not tracked
+# --- Local backups from tooling ---
+.gitignore.bak-*
+src/skeeto/build.bat.bak-*
+*.bak-20*
+# --- Docs: only START_HERE and agent-guides are tracked ---
+/docs/*
+!/docs/START_HERE.txt
+!/docs/agent-guides/
+!/docs/agent-guides/**
+# --- Sample / side projects stay local ---
+/extras/
+/packages/Necola_DLC_FullPack_POINTER.txt
+/packages/Skeeto_FullPack_POINTER.txt
+# build.bat output (dll + source snapshot). Not the player-release pack.
+/packages/Skeeto/
+# runtime/ holds local build outputs; do not commit binaries.
+# The Steam proxy lives in runtime/bootstrap/. Do not put a version/date in this folder name.
+/runtime/dll/*
+/更新日志.txt
+*.lnk
+
+# User skill caches in the development package are not package content.
+/packages/Skeeto-dev/**/__pycache__/
+/packages/Skeeto-dev/**/*.pyc
+
+# --- Official Astro website (lives under repo for convenience; tracked separately / local-only) ---
+/website/
+
+# Optional SDK sample build outputs (not installed by the core build).
+/src/skeeto/plugin_sdk/examples/*/out/

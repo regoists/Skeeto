@@ -1,0 +1,46 @@
+Skeeto project handoff entry
+============================
+
+This file only provides stable handoff navigation. It does not record the current version number, commit hash, menu page numbers, or temporary workspace state. On handoff, use the current workspace and the matching topic docs; do not treat historical plans or this page's summary as authorization to implement.
+
+## Handoff order
+
+1. Read `AGENTS.md` at the repository root and open the matching topic guides for the task.
+2. Inspect `git status --short`, `git log -8 --oneline`, and root `VERSION.txt`; identify existing uncommitted changes and keep them.
+3. Use `docs/agent-guides/module-performance-and-structure.md` to find module ownership and search entry points; then read the source, call sites, threads, and lifecycle.
+4. Read the applicable topics under docs/agent-guides/ for the task. Distinguish document conclusions as static source evidence, runtime measurement, inference, or historical state.
+5. After every project code change, run `cmd /c src\skeeto\build.bat` and complete the MSVC x86 build plus scripted deploy. Formal release, installer packaging, update pipelines, and Git integration follow `docs/agent-guides/release-and-updates.md`.
+
+## Reusable handoff Skill
+
+Project Skill: `.agents/skills/skeeto-handoff/SKILL.md`, invoked as `$skeeto-handoff` to create or continue a handoff. It saves the current task, decisions, verification evidence, and todos into an independent record under local `.codex/handoffs/`, and provides a prompt for a new conversation to take over. Handoff records do not replace current project rules or source, and do not automatically trigger build, release, or Git operations. This page continues to maintain only stable entry points and does not accumulate temporary task state.
+
+## Current sources of truth and directory boundaries
+
+- The shared source of truth for source code is `src/skeeto/`; main integration code lives in `src/skeeto/core/skeeto_proxy.cpp`. Module file responsibilities are in the module map.
+- `packages/Skeeto/source/` is a build sync mirror; do not edit it directly. `runtime/dll/` stores the core only and does not generate Necola alias copies; `runtime/bootstrap/` stores the Steam entry. Current development uses `bin/wininet.dll -> skeeto.dll`, deployed through maintenance transactions; keep the real Necola and do not write the core over the real Necola binary. Do not write machine absolute paths into shared files.
+- Root `VERSION.txt` is the source of truth for the version number; generated headers are updated by the build scripts.
+- User settings live in the game-root `skeeto_setting.ini`. 
+- The custom main menu is an independent module; its config uses `left4dead2/skeeto/mainmenu/current.hud` under the game directory and must not be mixed with in-game HUD schemes or the ini above. In-package installer docs are maintained in `packages/Skeeto-dev/`.
+- `reference/` and `archive/` are machine-local ignored directories; their files may be absent in other workspaces. Tracked reports must keep the conclusions and conditions needed for continued analysis.
+
+## Documentation entry points
+
+The repository tracks only `docs/START_HERE.txt` and `docs/agent-guides/`. Other local docs are not in the repository.
+
+| Need | Entry |
+| --- | --- |
+| Project rules, task routing, high-risk boundaries | `AGENTS.md` |
+| Source file responsibilities, hot paths, module wiring | `docs/agent-guides/module-performance-and-structure.md`; read budgets and historical evidence via map links as needed |
+| Menu layout, input, and ini conventions | `docs/agent-guides/menu-and-settings.md` |
+| Installer packages, release, updates, and Git authorization | `docs/agent-guides/release-and-updates.md` |
+| Source/L4D2 binaries, ABI, and disproven paths | `docs/agent-guides/reverse-engineering-and-disproven-paths.md` |
+| Live verification and UI operations | `docs/agent-guides/l4d2-live-verification-and-ui.md` |
+| Player docs, license, and acknowledgments | Root `README.md`, `LICENSE` |
+
+## Maintenance conventions
+
+- Root `AGENTS.md` holds only the project-rules entry and cross-task red lines; topic details stay in the matching guides.
+- Module ownership is maintained only in the module map. README and this handoff page provide links and no longer copy per-feature inventories.
+- Version, commit, and whether the workspace is clean are read only from Git and `VERSION.txt`; changelog entries go in the release log for that release, not on this page.
+- Raw conditions, dates, versions, and conclusion boundaries from a single investigation stay in the matching troubleshooting record; only constraints confirmed as long-term and general are promoted into a guide or AGENTS.

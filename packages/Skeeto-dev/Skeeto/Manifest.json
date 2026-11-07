@@ -1,0 +1,141 @@
+{
+  "schema": 1,
+  "product": "Skeeto",
+  "update_protocol": 1,
+  "requires_manual_migrate": false,
+  "install_layout": 2,
+  "semver": "2.2.14",
+  "files": [
+    {
+      "relative": "skeeto.dll",
+      "role": "core",
+      "hash": "c062a0d8183724f61c166ed7ec204255eeff740ec9aeb202731ea4ec937c12b8"
+    },
+    {
+      "relative": "bin\\wininet.dll",
+      "role": "proxy",
+      "hash": "76564b0e7334be44aa85d8eb0e00677316d6825d597b7d5fd8f097f0d28a84bf"
+    },
+    {
+      "relative": "VERSION.txt",
+      "role": "marker",
+      "hash": "2732342457f5d11724f5c6b92a56de198d10a31fc48abe085f3e139e7d44d8b0"
+    },
+    {
+      "relative": "SKEETO_WORKSHOP.txt",
+      "role": "marker",
+      "hash": "a56733a770e77a83910684490acc25bacb488b34a04f7e0d043ba3af82ea75aa"
+    },
+    {
+      "relative": "skeeto_apply_update.bat",
+      "role": "tool",
+      "hash": "8e6bee485c8e485e5d8ca8954f1d94abed8bf77c6500da738e29270070f8ceb4"
+    },
+    {
+      "relative": "Setup_安装 维护 卸载.bat",
+      "role": "tool",
+      "hash": "b1ead3840f7635fdcdc6fbd7d79f74c6c4d07857520813e171b3f7b54c0d845f"
+    },
+    {
+      "relative": "Skeeto\\Maintain.ps1",
+      "role": "tool",
+      "hash": "ccee7a8b45d66fad92aa790cc85089c4f7ae5109e8b440db9ac2f003ef9708be"
+    },
+    {
+      "relative": "Skeeto\\README.txt",
+      "role": "document"
+    },
+    {
+      "relative": "Skeeto\\Commands.txt",
+      "role": "document"
+    },
+    {
+      "relative": "Skeeto_更新日志.txt",
+      "role": "document"
+    },
+    {
+      "relative": "Skeeto\\DIY\\Background_主菜单背景.txt",
+      "role": "document"
+    },
+    {
+      "relative": "Skeeto\\DIY\\Menu_主菜单UI.txt",
+      "role": "document"
+    },
+    {
+      "relative": "Skeeto\\DIY\\ESCMenu_ESC菜单UI.txt",
+      "role": "document"
+    },
+    {
+      "relative": "Skeeto\\DIY\\Plugins_插件平台.txt",
+      "role": "document"
+    },
+    {
+      "relative": "Skeeto\\DIY\\Crosshair_贴图准星.txt",
+      "role": "document"
+    },
+    {
+      "relative": "Skeeto\\DIY\\HitFeedback_命中反馈.txt",
+      "role": "document"
+    },
+    {
+      "relative": "Skeeto\\DIY\\Agent Skills\\README.txt",
+      "role": "document"
+    },
+    {
+      "relative": "Skeeto\\DIY\\Agent Skills\\skeeto-hit-feedback\\SKILL.md",
+      "role": "document"
+    },
+    {
+      "relative": "Skeeto\\DIY\\Agent Skills\\skeeto-hit-feedback\\scripts\\validate_feedback.py",
+      "role": "document"
+    },
+    {
+      "relative": "Skeeto\\DIY\\Examples 命中反馈json示例\\skeeto_ci_my_random_sfx.json",
+      "role": "document"
+    },
+    {
+      "relative": "Skeeto\\DIY\\Examples 命中反馈json示例\\skeeto_ci_my_sequence.json",
+      "role": "document"
+    },
+    {
+      "relative": "Skeeto\\DIY\\Examples 命中反馈json示例\\skeeto_ci_my_style.json",
+      "role": "document"
+    },
+    {
+      "relative": "Skeeto\\DIY\\Examples 命中反馈json示例\\skeeto_ff_my_style.json",
+      "role": "document"
+    },
+    {
+      "relative": "Skeeto\\DIY\\Examples 命中反馈json示例\\skeeto_fx_my_style.json",
+      "role": "document"
+    },
+    {
+      "relative": "Skeeto\\DIY\\Examples 命中反馈json示例\\skeeto_si_my_simple.json",
+      "role": "document"
+    },
+    {
+      "relative": "Skeeto\\DIY\\Examples 命中反馈json示例\\skeeto_si_my_streak.json",
+      "role": "document"
+    },
+    {
+      "relative": "Skeeto\\DIY\\Examples 命中反馈json示例\\skeeto_si_my_world.json",
+      "role": "document"
+    },
+    {
+      "relative": "Skeeto\\PluginSDK\\README.md",
+      "role": "document"
+    },
+    {
+      "relative": "Skeeto\\PluginSDK\\include\\skeeto_plugin_api.h",
+      "role": "document"
+    },
+    {
+      "relative": "Skeeto\\PluginSDK\\examples\\HelloMenu\\plugin.cpp",
+      "role": "document"
+    },
+    {
+      "relative": "Skeeto\\PluginSDK\\examples\\HelloMenu\\build.bat",
+      "role": "document"
+    }
+  ]
+}

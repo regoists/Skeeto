@@ -1,0 +1,7 @@
+Skeeto navigation and supplies
+
+Adapted from RagDoll's L4N_Minimap 0.1.19 source package.
+
+Skeeto replaces the plugin's L4N platform interface, native menu bindings,
+window procedure, timer, settings file and Paint hook. The adapted module
+uses Skeeto's host lifecycle and configuration.
