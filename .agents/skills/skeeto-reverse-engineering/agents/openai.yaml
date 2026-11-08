@@ -1,0 +1,11 @@
+interface:
+  display_name: "Skeeto binary reverse engineering"
+  short_description: "Inspect Source/L4D2 x86 release binaries only when source cannot confirm"
+  default_prompt: "Use $skeeto-reverse-engineering to gather published-binary evidence Skeeto needs. Follow the project guide to locate the exact x86 DLL, do read-only focused static analysis, and separate facts, inference, and unknowns."
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "rea"
+      description: "Full REA MCP; this Skill uses it only for read-only x86 PE static analysis required by Skeeto"
+policy:
+  allow_implicit_invocation: true

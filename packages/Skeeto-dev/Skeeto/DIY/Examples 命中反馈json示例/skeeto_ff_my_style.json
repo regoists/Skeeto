@@ -1,0 +1,19 @@
+{
+  "id": "ff_my_style",
+  "name": "友伤 · 我的样式",
+  "channel": "ff",
+  "sort": 100,
+  "streak": { "enabled": false, "wrap": 0, "priority": 0 },
+  "hit": {
+    "priority": 0,
+    "overlay": "skeeto/ff/my_style/light",
+    "particle": "",
+    "sound": "skeeto/ff/my_style/hit.mp3"
+  },
+  "kill": {
+    "priority": 0,
+    "overlay": "skeeto/ff/my_style/heavy",
+    "particle": "",
+    "sound": "skeeto/ff/my_style/hit.mp3"
+  }
+}

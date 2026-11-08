@@ -1,0 +1,5 @@
+# Normalize text files across checkouts.
+* text=auto
+
+# The development package is an installable payload with byte-exact manifest hashes.
+/packages/Skeeto-dev/** -text

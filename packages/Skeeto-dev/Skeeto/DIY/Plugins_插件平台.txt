@@ -1,0 +1,60 @@
+Skeeto 插件平台：安装与开发入口
+=============================
+
+适用范围
+--------
+本教程对应支持 Plugin API 1.0 的 Skeeto 核心。平台默认关闭，是可选的客户端 DLL 加载与设置菜单入口。
+This guide is for Skeeto cores supporting Plugin API 1.0. The optional client DLL platform is disabled by default.
+
+玩家：安装别人做好的插件
+----------------------
+1. 确认插件作者提供的是 Skeeto Plugin API 1.x 的 Windows x86 DLL。普通玩家不需要编译器或头文件。
+2. 完全退出游戏，将插件入口 DLL 放进游戏目录的 bin\skeeto\plugins\。如果作者提供完整目录包，按其说明合并目录并保留依赖。
+3. 打开 Skeeto 菜单 → Skeeto插件平台 → 启动时加载插件。开启后完全退出并重启游戏。
+4. 回到平台列表查看加载状态，选中插件进入设置页。没有菜单的插件只显示名称、版本和状态。
+5. 数字键操作；数值项先选中再按 -/+；R 刷新当前插件页；0 返回；方向键翻页。
+
+更新或删除 DLL 前也要退出游戏；本平台没有热重载，也不自动下载插件。关闭加载开关从下次启动生效，不会在当前进程强行卸载已载入的 DLL。L4N 插件、SourceMod 插件和普通代理 DLL 不能直接放进来使用。
+
+Players: exit the game, place a Skeeto API 1.x x86 plugin in bin\skeeto\plugins\, enable startup loading in Skeeto Plugin Platform, and fully restart. Select a loaded plugin for its settings. Number keys operate items; select numbers before -/+, R refreshes, 0 returns, and arrows change pages. Exit before replacing/removing DLLs. Loading is not hot-reloaded; L4N/SourceMod plugins are not binary-compatible.
+
+控制台入口
+----------
+skeeto_plugins open       打开平台菜单。
+skeeto_plugins status     查看本进程加载结果与错误码。
+skeeto_plugins on         开启下次启动时的加载。
+skeeto_plugins off        关闭下次启动时的加载。
+skeeto_plugins refresh    刷新当前插件设置页。
+
+这些是一个 ConCommand 的不同参数，不是五个 ConVar。菜单位置以后调整不会改变插件接入协议。
+These are arguments of one ConCommand, not five ConVars. Moving the platform menu entry does not change the plugin API.
+
+插件设置与宿主设置
+----------------
+skeeto_setting.ini 只保存 Skeeto 自己的设置，包括平台总开关 plugin_platform。
+每个插件的独立数据目录由稳定 ID 决定：left4dead2\skeeto\plugins\<插件ID>\。
+平台给作者提供目录路径，但不自动替插件保存菜单数值。文件名和格式由插件决定；不应把第三方配置混进宿主 ini。安装包不带玩家设置，也不自动开启任何插件。
+
+Skeeto owns skeeto_setting.ini, including plugin_platform. Plugins should store their own data under left4dead2\skeeto\plugins\<plugin-id>\. The host provides this path but does not automatically save plugin settings. No player configuration or enabled plugin is shipped in this package.
+
+作者：从随包 SDK 开始
+-------------------
+完整开发资料位于包内 Skeeto\PluginSDK\：
+  README.md                         中文接口和生命周期说明。
+  include\skeeto_plugin_api.h        公开头文件。
+  examples\HelloMenu\plugin.cpp     六种菜单项和子菜单的完整示例。
+  examples\HelloMenu\build.bat      独立 x86 编译脚本。
+
+可把整个 PluginSDK 文件夹复制到其他位置，安装 Visual Studio C++ x86 Build Tools 后运行示例的 build.bat。编译结果在示例 out 目录；本包不预先附带或安装示例 DLL。
+
+插件导出 SkeetoPlugin_Query，提供元数据和回调。build_page 返回插件自己的页面数据；on_action 处理选项操作。Skeeto 负责菜单绘制、编号、翻页和返回。插件不依赖 Skeeto 内部菜单页码，也不需要链接核心私有库。兼容性按 Plugin API 版本判断，不按 Skeeto 产品版本号判断。
+
+Authors: copy Skeeto\PluginSDK\ anywhere, install MSVC x86 Build Tools, and run examples\HelloMenu\build.bat. Include skeeto_plugin_api.h and export SkeetoPlugin_Query. Return page data through build_page and handle interactions in on_action; Skeeto owns drawing/navigation. See README.md for ABI, threads, ownership and persistence. Compatibility follows Plugin API versions rather than the product version. Example DLLs are not preinstalled.
+
+运行边界
+--------
+平台关闭时不扫描、不加载、不回调第三方插件。开启后每个进程发现一次，最多处理32个入口。页面最多64项、导航最多8层；不逐帧构建菜单。文件和耗时任务应由插件自己安排，不能堵塞菜单/Paint回调。
+
+原生 DLL 与游戏运行在同一进程，没有沙箱。插件错误的内存访问、Hook 或阻塞回调仍可能让整个游戏崩溃或卡住；平台无法保证任意第三方代码完全不影响其他功能。请使用可信插件，作者须遵守 SDK 的线程和生命周期约定。
+
+When disabled, the platform does not scan, load or call plugins. When enabled it discovers up to 32 entries once per process. Pages are bounded and are not rebuilt every frame. Native DLLs share the game process: crashes, hooks and blocking callbacks cannot be sandboxed. Use trusted plugins and follow the SDK thread/lifecycle rules.

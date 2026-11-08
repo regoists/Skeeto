@@ -1,0 +1,30 @@
+{
+  "skeeto_mainui_services.cpp": {
+    "L\"%s\\\\Skeeto_更新日志.txt\"": "Game-root path of the shipped changelog file, not a sentence."
+  },
+  "skeeto_proxy.cpp": {
+    "L\"特感击杀\"": "Explicit Chinese ElimLabel dictionary; honors elim_lang independently.",
+    "L\"普感击杀\"": "Explicit Chinese ElimLabel dictionary.",
+    "L\"特感刀杀\"": "Explicit Chinese ElimLabel dictionary.",
+    "L\"空爆数量\"": "Explicit Chinese ElimLabel dictionary.",
+    "L\"刀爆数量\"": "Explicit Chinese ElimLabel dictionary.",
+    "L\"爆头率\"": "Explicit Chinese ElimLabel dictionary.",
+    "L\"Tank 击杀\"": "Explicit Chinese ElimLabel dictionary.",
+    "L\"Witch 击杀\"": "Explicit Chinese ElimLabel dictionary.",
+    "L\"击杀统计\"": "Explicit Chinese title under UiHudLanguage(elim_lang).",
+    "L\"战斗\"": "Explicit Chinese tag under UiHudLanguage(elim_lang).",
+    "L\"%.1f万\"": "User-selected Chinese numeric abbreviation style.",
+    "L\"%.0f万\"": "User-selected Chinese numeric abbreviation style.",
+    "L\"%.2f亿\"": "User-selected Chinese numeric abbreviation style.",
+    "L\"中文\"": "Language autonym.",
+    "L\"猎人\"": "Explicit Chinese kill-feed dictionary; honors killfeed_si_lang.",
+    "L\"舌头\"": "Explicit Chinese kill-feed dictionary.",
+    "L\"胖子\"": "Explicit Chinese kill-feed dictionary.",
+    "L\"口水\"": "Explicit Chinese kill-feed dictionary.",
+    "L\"猴子\"": "Explicit Chinese kill-feed dictionary.",
+    "L\"牛\"": "Explicit Chinese kill-feed dictionary.",
+    "L\"坦克\"": "Explicit Chinese kill-feed dictionary.",
+    "L\"女巫\"": "Explicit Chinese kill-feed dictionary and victim fallback; displayed through KillFeedVicLabel.",
+    "L\"导演\"": "Chinese Director name selected by the kill-feed language switch; the English branch is the literal Director."
+  }
+}

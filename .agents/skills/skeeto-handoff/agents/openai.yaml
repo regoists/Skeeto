@@ -1,0 +1,6 @@
+interface:
+  display_name: "Skeeto project handoff"
+  short_description: "Save goals, evidence, and workspace state so a new chat can continue Skeeto work"
+  default_prompt: "Use $skeeto-handoff to generate or read a Skeeto project handoff for the current task, verify the real workspace and verification scope, and provide a next step that can continue immediately."
+policy:
+  allow_implicit_invocation: true

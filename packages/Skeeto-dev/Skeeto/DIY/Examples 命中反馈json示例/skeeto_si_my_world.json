@@ -1,0 +1,29 @@
+{
+  "id": "si_my_world",
+  "name": "特感 · 我的世界粒子",
+  "channel": "si",
+  "sort": 120,
+  "streak": { "enabled": false, "wrap": 0, "priority": 0 },
+  "hit": {
+    "priority": 0,
+    "overlay": "skeeto/si/my_world/hit",
+    "particle": "my_world_hit_fx",
+    "sound": "skeeto/si/my_world/hit.mp3",
+    "world": true
+  },
+  "kill": {
+    "priority": 10,
+    "overlay": "",
+    "particle": "my_world_kill_fx",
+    "particles": ["my_world_kill_fx_extra"],
+    "sound": "skeeto/si/my_world/kill.mp3",
+    "world": true
+  },
+  "headshot": {
+    "priority": 100,
+    "overlay": "",
+    "particle": "my_world_kill_fx",
+    "sound": "skeeto/si/my_world/headshot.mp3",
+    "world": true
+  }
+}

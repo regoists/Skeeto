@@ -1,0 +1,15 @@
+Skeeto Supply Radar
+==================
+Adapted from SupplyRadar 1.3.6-clean / Build 132 by RagDoll.
+
+Original HUD artwork: 20Cat; GLOBAL RADAR 2020 - By Ellie.
+Digit fonts: 20HUD Torus SemiBold (Paul Goode, 2017), 20HUD Kudo and 20HUD
+MeowMoe, from the supplied 20Cat HUD packages.
+
+Skeeto uses its own menu, ini and Paint/input lifecycle. No L4N loader, menu
+ABI, timer, WindowProc or external plugin is required. The radar uses
+straight-line distance with a height hint; it does not use NAV meshes, traces
+or routes. Discovery, refresh, BSP supply metadata, artwork, layout and
+presentation were adapted from that source package. Protected memory
+reads (skeeto_memread.h), incremental work and resource bounds, and the
+layout editor's alignment snapping / live apply are Skeeto-specific changes.

@@ -1,0 +1,6 @@
+interface:
+  display_name: "Skeeto code review"
+  short_description: "Add Skeeto performance, stability, isolation, and review-scope checks"
+  default_prompt: "Use $skeeto-code-review to add Skeeto project requirements to an existing code review. Confirm local, release, or whole-project scope for the current task, and assess targeted risks from the real call chain."
+policy:
+  allow_implicit_invocation: true

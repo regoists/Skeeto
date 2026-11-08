@@ -1,0 +1,43 @@
+{
+  "id": "si_my_streak",
+  "name": "特感 · 我的连杀",
+  "channel": "si",
+  "sort": 110,
+  "streak": { "enabled": true, "wrap": 3, "priority": 10 },
+  "hit": {
+    "priority": 0,
+    "overlay": "skeeto/si/my_streak/hit",
+    "particle": "",
+    "sound": "skeeto/si/my_streak/hit.mp3"
+  },
+  "kill": {
+    "priority": 10,
+    "overlay": "skeeto/si/my_streak/1kill",
+    "particle": "",
+    "sound": "skeeto/si/my_streak/1kill.mp3"
+  },
+  "streak_1": {
+    "priority": 10,
+    "overlay": "skeeto/si/my_streak/1kill",
+    "particle": "",
+    "sound": "skeeto/si/my_streak/1kill.mp3"
+  },
+  "streak_2": {
+    "priority": 10,
+    "overlay": "skeeto/si/my_streak/2kill",
+    "particle": "",
+    "sound": "skeeto/si/my_streak/2kill.mp3"
+  },
+  "streak_3": {
+    "priority": 10,
+    "overlay": "skeeto/si/my_streak/3kill",
+    "particle": "",
+    "sound": "skeeto/si/my_streak/3kill.mp3"
+  },
+  "streak_default": {
+    "priority": 10,
+    "overlay": "skeeto/si/my_streak/3kill",
+    "particle": "",
+    "sound": "skeeto/si/my_streak/3kill.mp3"
+  }
+}

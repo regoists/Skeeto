@@ -1,0 +1,2 @@
+// build.bat compiles our x86 host first; ship it inside both proxy DLL names.
+SKEETO_CACHE_HOST RCDATA "obj\\cache_host\\skeeto_cache_host.exe"

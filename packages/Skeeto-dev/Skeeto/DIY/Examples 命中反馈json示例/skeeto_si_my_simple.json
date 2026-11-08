@@ -1,0 +1,25 @@
+{
+  "id": "si_my_simple",
+  "name": "特感 · 我的无连杀",
+  "channel": "si",
+  "sort": 100,
+  "streak": { "enabled": false, "wrap": 0, "priority": 0 },
+  "hit": {
+    "priority": 0,
+    "overlay": "skeeto/si/my_simple/hit",
+    "particle": "",
+    "sound": "skeeto/si/my_simple/hit.mp3"
+  },
+  "kill": {
+    "priority": 10,
+    "overlay": "skeeto/si/my_simple/kill",
+    "particle": "",
+    "sound": "skeeto/si/my_simple/kill.mp3"
+  },
+  "headshot": {
+    "priority": 100,
+    "overlay": "skeeto/si/my_simple/headshot",
+    "particle": "",
+    "sound": "skeeto/si/my_simple/headshot.mp3"
+  }
+}

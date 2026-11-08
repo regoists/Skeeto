@@ -1,0 +1,219 @@
+Skeeto 命中反馈 DIY 教程
+==============================
+
+本教程面向希望制作自定义命中、击杀、友伤或特殊击杀素材的玩家。
+不需要修改 Skeeto 源码；规则由 JSON 描述，素材由 VMT/VTF、音频和 PCF 提供。
+
+
+一、工作原理与目录
+------------------
+
+Skeeto 会通过游戏文件系统读取：
+
+  skeeto/skeeto_*.json 这就是命中反馈的所有资源路径与规则的配置文件
+
+JSON 可松散放在 left4dead2\skeeto，也可放进 addon VPK 的 skeeto 目录。
+旧的 particles/skeeto_*.json 仍兼容。推荐素材结构：
+
+  skeeto/skeeto_ci_my_style.json
+  materials/skeeto/ci/my_style/*.vmt|*.vtf
+  materials/skeeto/si/my_style/*.vmt|*.vtf
+  materials/skeeto/effects/*.vmt|*.vtf
+  sound/skeeto/ci|si|ff|fx/*
+  particles/*.pcf
+
+文件名必须以 skeeto_ 开头。JSON 必须是严格 JSON，不能写注释或尾随逗号。
+
+样式总数按所有通道的不同 id 合计。当前版本默认最多加载 64 套，可在命中反馈菜单第二页末尾循环选择 64 / 96 / 128 套；调整后返回游戏主菜单重新加载目录，不会在对局中扫描文件。超过当前档位的样式不会进入目录。旧版可能固定为 32 套，请以游戏菜单提供的上限选项为准。
+
+
+二、四种通道
+------------
+
+  ci  普通感染者：hit、kill、headshot、melee
+  si  特殊感染者/Tank：hit、kill、headshot、melee、streak_1...n
+  ff  友伤：hit 为轻度友伤；kill 为伤害达到重度档，不代表队友死亡
+  fx  特殊击杀：事件名由 Skeeto 固定识别
+
+fx 可用的固定事件 key 包括：
+
+  crit_text、level、crown、melee_crown、perfect_crown、tongue_cut、
+  skeet、melee_skeet、headshot_skeet、rock_skeet
+
+这些 key 不能随意改名；资源路径和粒子名可以自定义。
+
+
+三、JSON 基本结构
+----------------
+
+{
+  "id": "ci_my_style",
+  "name": "普感  我的样式",
+  "channel": "ci",
+  "sort": 100,
+  "streak": { "enabled": false, "wrap": 0, "priority": 10 },
+  "hit": {
+    "priority": 0,
+    "overlay": "skeeto/ci/my_style/hit",
+    "particle": "",
+    "sound": "skeeto/ci/my_style/hit.mp3",
+    "overlay_ms": 110,
+    "world": false
+  }
+}
+
+顶层字段：
+
+- id：全局唯一标识，也是设置保存依据；不要与其它样式重复。
+- name：菜单显示名称。
+- channel：ci、si、ff 或 fx。
+- sort：菜单排序，越小越靠前。
+- streak：连杀规则。
+
+事件块字段：
+
+- overlay：r_screenoverlay 材质路径；不写 materials/，不写扩展名。
+- overlay_sequence：可选的 overlay 材质路径数组，最多 30 项；每项对应一份 VMT，按顺序播放而非同时叠加。路径不写 materials/ 和扩展名。
+- overlay_step_ms：overlay_sequence 的换帧间隔，默认 40ms，最小 16ms，最大 1000ms；序列过长时会进一步收窄间隔。
+- particle：PCF 内部的粒子效果名，不是 .pcf 文件名。
+- particles：额外粒子名数组，最多 8 个；加上 particle 最多同时 9 个。
+- sound：相对 sound/ 的 mp3 或 wav 路径。
+- sounds：随机音效数组；存在时会与 sound 一起作为随机候选。
+- priority：同次事件竞争时数值更大者优先。
+- world：true 为世界坐标粒子；false/省略为屏幕空间粒子。
+- overlay_ms：全屏贴图时长（毫秒）；别名 duration、overlay_duration。
+
+overlay/overlay_sequence、particle/particles、sound/sounds 可任意组合，也可只使用其中一种。空字符串表示不触发。
+默认 overlay 时长约为：hit 110ms，其它常规事件 240ms，fx 260ms。
+
+顺序 overlay 示例：
+
+"kill": {
+  "overlay_sequence": [
+    "skeeto/ci/my_style/kill/frame_00",
+    "skeeto/ci/my_style/kill/frame_01",
+    "skeeto/ci/my_style/kill/frame_02"
+  ],
+  "overlay_step_ms": 40,
+  "overlay_ms": 1000,
+  "sound": "skeeto/ci/my_style/kill.mp3"
+}
+
+overlay_sequence 存在时优先于同一事件块中的 overlay。新反馈会从第一项重新播放，
+并替换仍在播放的旧 overlay。overlay_ms 表示整段总显示时间；若短于完整序列，
+Skeeto 会自动延长到足够播完。单段总时长上限仍为 5000ms，过长的换帧间隔会
+自动收窄，让最多 30 项的目标切换时间落在上限内。低帧率时会跳过已经错过的
+中间帧，不会逐帧补发。
+
+这个示例还需要对应素材：例如 frame_00 应有
+materials/skeeto/ci/my_style/kill/frame_00.vmt，并由它引用相应的 VTF。
+每一项都需要独立 VMT；只有 JSON、没有材质文件时会显示缺失材质。
+“Examples”目录里的 skeeto_ci_my_sequence.json 给出了完整的顺序贴图 JSON 写法。
+
+r_screenoverlay 只有一个全局显示槽，因此 overlay_sequence 是顺序切换，不是
+多层叠加。需要同时显示两个图标时，应先把两层内容预合成进同一帧，或合成进
+同一个多帧 VTF；不能照搬 particles 的并行语义。
+
+
+四、世界粒子与屏幕反馈
+----------------------
+
+world 只决定粒子的生成方式，不影响 overlay。
+
+- world=false：粒子按屏幕特效路径触发，适合准星附近动态图标。
+- world=true：粒子在受害者或弹着点附近生成，适合三维击杀特效。
+- fx 粒子固定使用特殊击杀发生的世界位置；仍可同时写 overlay。
+
+ci/si/ff 的世界点由 Skeeto 在事件发生时计算，JSON 不应写死 x/y/z。
+粒子生命周期、动画、轨迹和尺寸由 PCF 本身决定。
+
+组合粒子示例：
+
+"kill": {
+  "particle": "my_main_fx",
+  "particles": ["my_extra_a", "my_extra_b"],
+  "world": true,
+  "overlay": "skeeto/si/my_style/kill",
+  "priority": 10
+}
+
+
+五、连杀与优先级
+----------------
+
+开启连杀：
+
+"streak": { "enabled": true, "wrap": 5, "priority": 10 }
+
+然后定义 streak_1、streak_2……streak_5。wrap=0 表示不循环；可以提供
+streak_default 作为未匹配档位的后备。
+
+建议优先级：melee 110、headshot 100、streak/kill 10、hit 0。
+如果希望刀杀或爆头不打断连杀，不要定义更高优先级的 melee/headshot；
+如果希望它们覆盖连杀，就为对应事件设置更高 priority。
+
+
+六、材质、音频与粒子
+--------------------
+
+全屏 overlay 通常使用 UnlitGeneric。VMT 示例：
+
+"UnlitGeneric"
+{
+    "$basetexture" "skeeto/ci/my_style/hit"
+    "$translucent" "1"
+}
+
+overlay 会按屏幕拉伸，制作时注意 16:9 比例与 Clamp S/T。
+
+小尺寸准星图标不必制作成 1920x1080 黑底贴图。可以在 VTFEdit 中同时勾选
+Clamp S、Clamp T，并在 VMT 中使用 $basetexturetransform 把小贴图映射到屏幕
+中央。以 1920x1080 下显示 64x64 图标为例：
+
+"$basetexturetransform" "center .5 .5 scale 30 16.875 rotate 0 translate 0 0"
+
+其中 30=1920/64，16.875=1080/64。Clamp 只负责阻止外围重复平铺，必须与
+纹理变换一起使用；贴图边缘还应保持透明，或在 additive 材质中保持纯黑，避免
+边缘颜色被 Clamp 拉满屏。不同宽高比需要单独检查图标比例和位置。
+
+音频支持 mp3/wav，推荐 44.1kHz 或 22.05kHz；超过游戏支持的采样率会导致无声。
+
+粒子材质通常使用 SpriteCard，$basetexture 必须与 VTF 路径一致。PCF 必须由
+素材包自身加入粒子清单或通过对应加载机制注册；核心安装器不会代为注册。
+
+
+七、打包与测试
+--------------
+
+推荐将 JSON、材质、音频和 PCF 按上述相对路径打进一个 addon VPK。无需覆盖
+官方素材包，多套 skeeto_*.json 可以共存。
+
+检查：
+
+1. 所有 JSON 都能严格解析，id 唯一，channel 与文件用途一致。
+2. VMT 的 $basetexture、JSON 的 overlay/sound 和 PCF 内部粒子名都正确。
+3. 分别测试 hit、kill、headshot、melee、连杀和特殊击杀。
+4. 世界粒子和屏幕粒子分别测试，确认 world 设置符合预期。
+5. 测试顺序贴图是否从首帧重播、末帧时长是否合适，以及新反馈能否替换旧序列。
+6. 测试随机音效、组合粒子及素材缺失时的表现。
+7. 用干净环境验证，避免本机其它 VPK 恰好补齐了遗漏资源。
+
+
+八、常见错误
+------------
+
+- 菜单没有样式：JSON 路径或 skeeto_ 文件名前缀错误，或 VPK 未启用。
+- 紫黑格：VMT/PCF 引用路径错误，或 $basetexture 仍指向旧目录。
+- 粒子有声无画：PCF 未注册，或 JSON 填了文件名而不是粒子效果名。
+- world=true 没有全屏图：world 不控制 overlay；检查 overlay 是否为空。
+- 刀杀总显示第一档：检查 melee 与 streak 的 priority 竞争关系。
+- 音效不播放：检查路径、格式和采样率。
+
+“Examples”目录保留了 ci、si、ff、fx、连杀、世界粒子、随机音效和顺序贴图的
+JSON。它们只提供配置写法，不附带材质或音频；使用前请修改 id、name、资源路径，
+并制作对应的 VMT/VTF、音频或 PCF。
+
+粒子清单数量上限
+命中反馈菜单的“粒子清单上限”可选16、32、48个，默认32个，与JSON数量上限放在一起。该项控制Skeeto粒子平台扫描加载的清单数量，不代表单个清单内粒子效果的数量。
+Particle manifest limit
+The Hit Feedback menu offers particle manifest limits of 16, 32 or 48, defaulting to 32, alongside the JSON limit. This controls how many manifests the Skeeto particle platform scans and loads, not the number of effects inside one manifest.

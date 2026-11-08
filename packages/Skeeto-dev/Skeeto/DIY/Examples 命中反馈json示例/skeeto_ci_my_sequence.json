@@ -1,0 +1,31 @@
+{
+  "id": "ci_my_sequence",
+  "name": "普感 · 顺序贴图示例",
+  "channel": "ci",
+  "sort": 102,
+  "streak": { "enabled": false, "wrap": 0, "priority": 10 },
+  "hit": {
+    "priority": 0,
+    "overlay_sequence": [
+      "skeeto/ci/my_sequence/hit/frame_00",
+      "skeeto/ci/my_sequence/hit/frame_01",
+      "skeeto/ci/my_sequence/hit/frame_02",
+      "skeeto/ci/my_sequence/hit/frame_03"
+    ],
+    "overlay_step_ms": 40,
+    "overlay_ms": 240,
+    "sound": "skeeto/ci/my_sequence/hit.mp3"
+  },
+  "kill": {
+    "priority": 10,
+    "overlay_sequence": [
+      "skeeto/ci/my_sequence/kill/frame_00",
+      "skeeto/ci/my_sequence/kill/frame_01",
+      "skeeto/ci/my_sequence/kill/frame_02",
+      "skeeto/ci/my_sequence/kill/frame_03"
+    ],
+    "overlay_step_ms": 50,
+    "overlay_ms": 500,
+    "sound": "skeeto/ci/my_sequence/kill.mp3"
+  }
+}
