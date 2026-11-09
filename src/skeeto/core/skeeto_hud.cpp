@@ -178,7 +178,7 @@ void TeamHudEnsureFonts();
 const wchar_t* TeamHudMeleeLabel(const char* stem);
 const char* TeamHudModelName(int modelIndex);
 bool TeamHudMeleeStemFromModel(const char* model, char* out, int outN);
-void TeamHudFillMeleeStem(int wepIdx, char* out, int outN);
+void TeamHudFillMeleeStem(int wepIdx, char* out, int outN, bool forDeathEvent);
 void TeamHudReadWeps(void* e, TeamHudSlot* s);
 bool TeamHudFullReady(bool menuPreview = false);
 void TeamHudCopyGear(TeamHudSlot* dst, const TeamHudSlot& src);
@@ -2277,11 +2277,12 @@ bool TeamHudLocalIsSpectating() {
 		|| g_dbgLocalTeam.load(std::memory_order_relaxed) == 1;
 }
 
-const char* TeamHudModelNameInner(int modelIndex, bool skipLoadGate) {
+const char* TeamHudModelNameInner(int modelIndex, bool skipLoadGate, bool allowWhileSpectating) {
 	// Out-of-range model indices (stale weapon / wrong ent) can fault inside engine GetModel.
 	if (modelIndex <= 0 || modelIndex > 8192) return nullptr;
 	if (!g_engine || !EngInGame() || EngDrawingLoading()) return nullptr;
-	if (TeamHudLocalIsSpectating()) return nullptr;
+	// TeamHud inventory paint stays off while spectating; kill-feed death resolve may opt in.
+	if (!allowWhileSpectating && TeamHudLocalIsSpectating()) return nullptr;
 	if (!skipLoadGate && !TeamHudFullReady(false)) return nullptr;
 	for (int i = 0; i < g_modelNameCacheN; ++i) {
 		if (g_modelNameCache[i].idx != modelIndex) continue;
@@ -2363,15 +2364,19 @@ bool TeamHudMeleeStemFromModel(const char* model, char* out, int outN) {
 	return true;
 }
 
-void TeamHudFillMeleeStem(int wepIdx, char* out, int outN) {
+void TeamHudFillMeleeStem(int wepIdx, char* out, int outN, bool forDeathEvent) {
 	if (!out || outN <= 0) return;
 	out[0] = 0;
 	if (wepIdx <= 0 || wepIdx >= 2048 || g_offModelIndex < 0 || g_offModelIndex > 0x4000) return;
 	void* wep = EntGet(wepIdx);
-	if (!EntReadable(wep) || !EntNetworkable(wepIdx)) return;
+	if (!EntReadable(wep)) return;
+	// Spectators often lack full weapon networkability; death events still need the model stem.
+	if (!forDeathEvent && !EntNetworkable(wepIdx)) return;
 	int* pm = (int*)((uint8_t*)wep + g_offModelIndex);
 	if (!PtrCommitted(pm) || *pm <= 0 || *pm > 8192) return;
-	const char* model = TeamHudModelName(*pm);
+	const char* model = forDeathEvent
+		? TeamHudModelNameInner(*pm, true, true)
+		: TeamHudModelName(*pm);
 	if (!model) return;
 	TeamHudMeleeStemFromModel(model, out, outN);
 }
@@ -2731,7 +2736,7 @@ void TeamHudFillSlot(TeamHudSlot& s, void* e, int entIdx, int faceCh, bool isLoc
 	s.ent = entIdx;
 	s.sampledPawn = e;
 	s.isLocal = isLocal;
-	s.character = (faceCh >= 0 && faceCh < kTeamHudMax) ? faceCh : 0;
+	s.character = (faceCh >= 0 && faceCh < kTeamHudCharMax) ? faceCh : 0;
 	s.hp = 0;
 	s.maxHp = 100;
 	s.tempHp = 0;
@@ -3117,8 +3122,8 @@ void TeamWorldHudPaint() {
 	const bool freshNames = names && nameFont && g_teamHudGatherPaintAt
 		&& GetTickCount() - g_teamHudGatherPaintAt <= 300u;
 
-	// Reuse TeamHudGather's bounded survivor cache. This loop is capped at eight slots
-	// (normally at most seven remote survivors) and never searches the entity table.
+	// Reuse TeamHudGather's bounded survivor cache (up to kTeamHudMax remote slots)
+	// and never searches the entity table.
 	for (int i = 0; i < kTeamHudMax; ++i) {
 		const TeamHudSlot& s = g_teamHudSlots[i];
 		if (!s.present || s.isLocal || s.dead || s.ent <= 0 || s.ent > 64 || s.ent == local) continue;
@@ -5056,14 +5061,14 @@ void TeamHudPaintHud() {
 	if (selfOnly)
 		return;
 	int shownOthers = 0;
-	for (int i = 0; i < kTeamHudMax; ++i) {
+	for (int i = 0; i < kTeamHudCardMax; ++i) {
 		const bool selHere = layoutEdit && g_teamHudSel == i;
 		if (!layoutEdit && !g_teamHudSlots[i].present)
 			continue;
 		if (!layoutEdit) {
 			int cap = g_teamHudMaxOthers;
 			if (cap < 1) cap = 1;
-			if (cap > kTeamHudMax) cap = kTeamHudMax;
+			if (cap > kTeamHudCardMax) cap = kTeamHudCardMax;
 			if (shownOthers >= cap)
 				continue;
 		}

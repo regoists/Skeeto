@@ -4,7 +4,12 @@
 // Public nest API + nest types. Internals stay as protos in skeeto_hud.cpp.
 // Menu / Save/Load / Wanted aggregation stay in proxy.
 
-constexpr int kTeamHudMax = 8;
+// Tracked remote survivors (world names / world HP / bile / idle links).
+constexpr int kTeamHudMax = 16;
+// On-screen teammate blood-bar cards and their layout slots.
+constexpr int kTeamHudCardMax = 8;
+// L4D2 survivor character indices (portraits / glow): Nick..Ellis.
+constexpr int kTeamHudCharMax = 8;
 enum TeamWep : int {
 	TW_None = 0,
 	TW_Pistol, TW_Magnum, TW_Melee, TW_Saw,
@@ -19,7 +24,7 @@ enum TeamWep : int {
 	TW_Count
 };
 
-constexpr int kTeamHudSelSelf = kTeamHudMax;
+constexpr int kTeamHudSelSelf = kTeamHudCardMax;
 constexpr int kTeamHudShowAll = 0;
 constexpr int kTeamHudShowSelf = 1;
 
@@ -104,9 +109,9 @@ struct TeamHudGearCache {
 };
 
 extern int g_teamHudFont, g_teamHudSel, g_teamHudStyle, g_teamHudScale, g_teamHudShow;
-extern int g_teamHudMaxOthers; // 1..8 teammate cards when not self-only
-extern int g_teamHudX[kTeamHudMax];
-extern int g_teamHudY[kTeamHudMax];
+extern int g_teamHudMaxOthers; // 1..kTeamHudCardMax teammate cards when not self-only
+extern int g_teamHudX[kTeamHudCardMax];
+extern int g_teamHudY[kTeamHudCardMax];
 extern int g_selfHudX, g_selfHudY;
 extern TeamHudSlot g_teamHudSlots[kTeamHudMax];
 extern TeamHudSlot g_teamHudLocal;
@@ -311,9 +316,10 @@ void TeamHudResetSurvivorSetCache();
 COLORREF CapHudColor(int cap);
 const wchar_t* CapHudColorName(int slot);
 bool TeamHudLocalIsSpectating();
-const char* TeamHudModelNameInner(int modelIndex, bool skipLoadGate);
+const char* TeamHudModelNameInner(int modelIndex, bool skipLoadGate, bool allowWhileSpectating = false);
 int TeamHudWepKindCorrected(int wepIdx, const char* cn);
-void TeamHudFillMeleeStem(int wepIdx, char* out, int outN);
+// forDeathEvent: kill-feed may resolve while local is spectating; TeamHud paint stays gated off.
+void TeamHudFillMeleeStem(int wepIdx, char* out, int outN, bool forDeathEvent = false);
 void TeamHudReadGunAmmo(void* owner, int wepIdx, int kind, int* clip, int* ammo);
 void TeamHudResetRuntimeState();
 void TeamHudOnBotSwap(const char* eventName, int playerUserId, int botUserId);

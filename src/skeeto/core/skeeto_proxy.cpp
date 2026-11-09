@@ -2199,7 +2199,7 @@ bool g_optWorldBlackWhite = false;  // teammate black-and-white badge above thei
 bool g_worldHudRealism = false;
 // Per-character survivor outline color. -1 means server/game default (no override).
 // Character order matches Team HUD: Nick, Rochelle, Coach, Ellis, Bill, Zoey, Francis, Louis.
-static int g_survivorGlowColor[kTeamHudMax] = { -1, -1, -1, -1, -1, -1, -1, -1 };
+static int g_survivorGlowColor[kTeamHudCharMax] = { -1, -1, -1, -1, -1, -1, -1, -1 };
 static bool g_optSurvivorGlowAlways = false;
 static int g_survivorGlowSel = 0;
 enum GlowStateCvarKind : int {
@@ -2226,10 +2226,10 @@ int g_teamHudSel = kTeamHudSelSelf; // 默认先挪自己的固定血条
 int g_teamHudStyle = 0; // 0经典 1竞技条 2极简 3战术格 4大数字 5角色色 6切角框
 int g_teamHudScale = 100;
 int g_teamHudShow = kTeamHudShowAll; // 0全队 1仅自己
-int g_teamHudMaxOthers = 8; // 1..8 teammate cards when not self-only
+int g_teamHudMaxOthers = kTeamHudCardMax; // 1..kTeamHudCardMax teammate cards when not self-only
 int g_teamHudPxOverride = 0; // paint-only scale (self card); avoids mutating g_teamHudScale mid-frame
-int g_teamHudX[kTeamHudMax] = { 16, 16, 16, 16, 392, 392, 392, 392 };
-int g_teamHudY[kTeamHudMax] = { 16, 124, 232, 340, 16, 124, 232, 340 };
+int g_teamHudX[kTeamHudCardMax] = { 16, 16, 16, 16, 392, 392, 392, 392 };
+int g_teamHudY[kTeamHudCardMax] = { 16, 124, 232, 340, 16, 124, 232, 340 };
 // 自己的血条：与角色栏位脱钩，位置固定，不随本局角色变化
 bool g_dirHudAbs = false;
 int g_dirHudX = 0;
@@ -3288,7 +3288,7 @@ static void CfgOvRestoreTouched();
 
 bool SurvivorGlowWanted() {
 	if (g_optSurvivorGlowAlways) return true;
-	for (int i = 0; i < kTeamHudMax; ++i)
+	for (int i = 0; i < kTeamHudCharMax; ++i)
 		if (g_survivorGlowColor[i] >= 0) return true;
 	return false;
 }
@@ -7098,7 +7098,7 @@ static void LoadSettings() {
 	WitchStartleHudResetPos();
 	g_witchStartleHudFont = 20;
 	g_witchStartleHudScale = 100;
-	for (int i = 0; i < kTeamHudMax; ++i) g_survivorGlowColor[i] = -1;
+	for (int i = 0; i < kTeamHudCharMax; ++i) g_survivorGlowColor[i] = -1;
 	for (int i = 0; i < kGlowStateCvarCount; ++i) g_glowStateColor[i] = -1;
 	g_optSurvivorGlowAlways = false;
 	g_survivorGlowSel = 0;
@@ -7111,7 +7111,7 @@ static void LoadSettings() {
 	g_teamHudStyle = 0;
 	g_teamHudScale = 100;
 	g_teamHudShow = kTeamHudShowAll;
-	g_teamHudMaxOthers = 8;
+	g_teamHudMaxOthers = kTeamHudCardMax;
 	TeamHudResetPos();
 	g_optAmmoHud = false;
 	g_optItemHud = false;
@@ -8238,11 +8238,11 @@ static void LoadSettings() {
 	if (g_teamHudShow != kTeamHudShowSelf) g_teamHudShow = kTeamHudShowAll;
 	if (g_teamHudShow == kTeamHudShowSelf) g_teamHudSel = kTeamHudSelSelf;
 	if (g_teamHudMaxOthers < 1) g_teamHudMaxOthers = 1;
-	if (g_teamHudMaxOthers > kTeamHudMax) g_teamHudMaxOthers = kTeamHudMax;
+	if (g_teamHudMaxOthers > kTeamHudCardMax) g_teamHudMaxOthers = kTeamHudCardMax;
 	if (g_staggerHudStyle < 0 || g_staggerHudStyle > 1) g_staggerHudStyle = 0;
 	ClampClientDmgCritThresholds();
 	TeamHudClampStyleScale();
-	for (int i = 0; i < kTeamHudMax; ++i)
+	for (int i = 0; i < kTeamHudCardMax; ++i)
 		ClampHudAbsCoord(true, &g_teamHudX[i], &g_teamHudY[i], 0, 7680);
 	ClampHudAbsCoord(true, &g_selfHudX, &g_selfHudY, 0, 7680);
 	ClampAmmoHud();
@@ -24321,7 +24321,7 @@ TeamHudGearCache g_teamHudGearCache[33]{};
 
 
 
-static const int kSurvivorGlowPreset[kTeamHudMax] = {
+static const int kSurvivorGlowPreset[kTeamHudCharMax] = {
 	RGB(185, 230, 255), // Nick      #B9E6FF
 	RGB(180,  92, 255), // Rochelle  #B45CFF
 	RGB(255, 201,  40), // Coach     #FFC928
@@ -24395,7 +24395,7 @@ static void GlowStateCycleSelected(int delta) {
 }
 
 static int SurvivorGlowMenuIndex(int character) {
-	if (character < 0 || character >= kTeamHudMax) return 0;
+	if (character < 0 || character >= kTeamHudCharMax) return 0;
 	const int color = g_survivorGlowColor[character];
 	if (color < 0) return 0;
 	if (color == kSurvivorGlowPreset[character]) return 1;
@@ -24407,7 +24407,7 @@ static int SurvivorGlowMenuIndex(int character) {
 static void SurvivorGlowDescribeW(int character, wchar_t* out, size_t cap) {
 	if (!out || cap == 0) return;
 	out[0] = 0;
-	if (character < 0 || character >= kTeamHudMax) return;
+	if (character < 0 || character >= kTeamHudCharMax) return;
 	const int color = g_survivorGlowColor[character];
 	const int idx = SurvivorGlowMenuIndex(character);
 	if (idx == 0) {
@@ -24425,7 +24425,7 @@ static void SurvivorGlowDescribeW(int character, wchar_t* out, size_t cap) {
 }
 
 static void SurvivorGlowCycleSelected(int delta) {
-	if (g_survivorGlowSel < 0 || g_survivorGlowSel >= kTeamHudMax) g_survivorGlowSel = 0;
+	if (g_survivorGlowSel < 0 || g_survivorGlowSel >= kTeamHudCharMax) g_survivorGlowSel = 0;
 	const int count = kSurvivorGlowPaletteCount + 2; // server default + SKT preset + shared colors
 	int idx = SurvivorGlowMenuIndex(g_survivorGlowSel);
 	if (idx < 0) idx = 1; // custom RGB joins the cycle next to the character preset
@@ -24540,7 +24540,7 @@ static void SurvivorGlowTick(bool force) {
 	for (int i = 0; i < kTeamHudMax; ++i) {
 		const TeamHudSlot& s = g_teamHudSlots[i];
 		if (!s.present || s.isLocal || s.dead || s.ent <= 0 || s.ent > 32
-			|| s.character < 0 || s.character >= kTeamHudMax) continue;
+			|| s.character < 0 || s.character >= kTeamHudCharMax) continue;
 		if (g_survivorGlowColor[s.character] < 0 && !g_optSurvivorGlowAlways) continue;
 		void* e = EntGet(s.ent);
 		if (!e || !EntReadable(e)) continue;
@@ -24567,7 +24567,7 @@ static void SurvivorGlowTick(bool force) {
 	for (int i = 0; i < kTeamHudMax && out < kTeamHudMax; ++i) {
 		const TeamHudSlot& s = g_teamHudSlots[i];
 		if (!s.present || s.isLocal || s.dead || s.ent <= 0 || s.ent > 32
-			|| s.character < 0 || s.character >= kTeamHudMax) continue;
+			|| s.character < 0 || s.character >= kTeamHudCharMax) continue;
 		const int color = g_survivorGlowColor[s.character];
 		if (color < 0 && !g_optSurvivorGlowAlways) continue;
 		void* e = EntGet(s.ent);
@@ -33863,7 +33863,7 @@ static void MenuPaintEngine() {
 			int y = 82;
 			if (SurvivorGlowMenuCharacterPage(g_menuSub)) {
 				line(48, cAdjust, UiText(UiId::Text_b2d70d11, L"按数字选择角色，再用 - / + 实时切换；服务器默认表示完全不覆盖。"));
-				for (int i = 0; i < kTeamHudMax; ++i) {
+				for (int i = 0; i < kTeamHudCharMax; ++i) {
 					const SurvivorGlowMenuItem& item = kSurvivorGlowMenuItems[i];
 					wchar_t value[80]{};
 					SurvivorGlowDescribeW(item.valueIndex, value, 80);
@@ -38768,7 +38768,7 @@ static bool SurvivorGlowParseHex(const char* s, int* out) {
 }
 
 static void SkCmd_SurvivorGlow(int* cmd, int character, const char* commandName) {
-	if (character < 0 || character >= kTeamHudMax) return;
+	if (character < 0 || character >= kTeamHudCharMax) return;
 	bool changed = false;
 	if (CmdArgC(cmd) >= 2) {
 		const char* a = CmdArg(cmd, 1);
@@ -43125,7 +43125,7 @@ static void MenuProcessKeyImpl(int digit) {
 		case TeamHealthMenuAction::CycleMaxOthers:
 			if (g_teamHudShow == kTeamHudShowSelf)
 				return;
-			g_teamHudMaxOthers = CycleWrap(g_teamHudMaxOthers, 1, kTeamHudMax);
+			g_teamHudMaxOthers = CycleWrap(g_teamHudMaxOthers, 1, kTeamHudCardMax);
 			break;
 		default:
 			return;
@@ -46457,6 +46457,7 @@ static void KillFeedFillMeleeStem(const char* key, char* out, int outN) {
 
 // player_death often sends weapon="melee". Resolve stem from attacker's held melee model
 // (same as TeamHud). Event-only; no Trace. Clears key to use generic icon_melee if unknown.
+// Must work while local is OB/spectator — TeamHud inventory gather stays gated off.
 static void KillFeedResolveMeleeKey(char* key, int keyN, int atkUid) {
 	if (!key || keyN < 2) return;
 	char stem[40]{};
@@ -46477,7 +46478,7 @@ static void KillFeedResolveMeleeKey(char* key, int keyN, int atkUid) {
 		const char* cn = EntNetClassName(idx);
 		if (!cn || (!strstr(cn, "Melee") && !strstr(cn, "melee"))) return false;
 		char s[40]{};
-		TeamHudFillMeleeStem(idx, s, (int)sizeof(s));
+		TeamHudFillMeleeStem(idx, s, (int)sizeof(s), true);
 		if (!s[0]) return false;
 		strncpy(key, s, keyN - 1);
 		key[keyN - 1] = 0;
@@ -46609,7 +46610,7 @@ static void KillFeedResolveWitchWeapon(KillFeedRow& row) {
 	row.wep=KillFeedWepFromName(key,0);
 	row.melee=kind==TW_Melee || kind==TW_Saw;
 	if(kind==TW_Melee) {
-		char stem[32]{};TeamHudFillMeleeStem(weapon,stem,(int)sizeof(stem));
+		char stem[32]{};TeamHudFillMeleeStem(weapon,stem,(int)sizeof(stem), true);
 		if(stem[0]) strcpy_s(row.wepKey,stem);
 	}
 }
@@ -47713,7 +47714,21 @@ static void TabBoardGather() {
 	}
 	int specEnt[32];
 	int nSpec = 0;
+	int idleHumanUid[32];
+	int nIdleHuman = 0;
 	int nSurv = 0, nInf = 0, infHumans = 0;
+	auto noteIdleHumanUid = [&](int uid) {
+		if (uid <= 0 || nIdleHuman >= 32) return;
+		for (int j = 0; j < nIdleHuman; ++j)
+			if (idleHumanUid[j] == uid) return;
+		idleHumanUid[nIdleHuman++] = uid;
+	};
+	auto idleHumanUidKnown = [&](int uid) -> bool {
+		if (uid <= 0) return false;
+		for (int j = 0; j < nIdleHuman; ++j)
+			if (idleHumanUid[j] == uid) return true;
+		return false;
+	};
 	for (int i = 1; i <= 32; ++i) {
 		void* e = EntGet(i);
 		if (!e || !EntReadable(e)) continue;
@@ -47721,12 +47736,9 @@ static void TabBoardGather() {
 		if (!EngPlayerInfo(i, &pi) || !pi.name[0]) continue;
 		const int team = TabReadInt(e, g_offTeam, 0);
 		const bool bot = PlayerInfoIsBot(pi);
-		if (team == 1) {
-			if (bot || nSpec >= 32) continue;
-			specEnt[nSpec] = i;
-			++nSpec;
-			continue;
-		}
+		// Spectators are gathered after the survivor pass via PlayerResource.
+		// Entity team==1 alone undercounts when the pawn is not readable (common for free specs).
+		if (team == 1) continue;
 		if (team != 2 && team != 3) continue;
 		TabBoardRow r{};
 		r.ent = i;
@@ -47751,12 +47763,12 @@ static void TabBoardGather() {
 			bool deadObs = false;
 			if (!TabSurvQualify(i, e, pi, &prop, &deadObs)) continue;
 			TeamHudSlot s{};
-			TeamHudFillSlot(s, e, i, (prop >= 0 && prop < kTeamHudMax) ? prop : 0, r.local, false);
+			TeamHudFillSlot(s, e, i, (prop >= 0 && prop < kTeamHudCharMax) ? prop : 0, r.local, false);
 			int v = 0;
 			const bool prDead = pr && TabPrRead(pr, g_tbPrAlive, i, &v) && v == 0;
 			const bool dead = s.dead || deadObs || prDead;
 			if (gearOk && !dead) TeamHudReadWepsCached(e, i, &s, 250u);
-			r.ch = (prop >= 0 && prop < kTeamHudMax) ? prop : -1;
+			r.ch = (prop >= 0 && prop < kTeamHudCharMax) ? prop : -1;
 			r.hp = dead ? 0 : s.hp;
 			r.maxHp = s.maxHp > 0 ? s.maxHp : 100;
 			r.tempHp = dead ? 0 : s.tempHp;
@@ -47788,6 +47800,7 @@ static void TabBoardGather() {
 			// Idle human behind this BOT (SurvivorBot::m_humanSpectatorUserID).
 			if (bot && g_tbOffHumanSpecUid >= 0) {
 				const int hu = TabReadInt(e, g_tbOffHumanSpecUid, 0);
+				if (hu > 0) noteIdleHumanUid(hu);
 				const int he = hu > 0 ? EngPlayerForUserID(hu) : 0;
 				PlayerInfo hp{};
 				if (he > 0 && EngPlayerInfo(he, &hp) && !PlayerInfoIsBot(hp) && hp.name[0]) {
@@ -47831,14 +47844,41 @@ static void TabBoardGather() {
 		}
 	}
 	(void)infHumans;
-	// Include idle humans here as well as on their BOT's survivor row.
+	// Free spectators: prefer CTerrorPlayerResource (connected + team 1). Entity
+	// m_iTeamNum alone misses specs whose pawn is not EntReadable. Idle humans
+	// already labeled on a survivor BOT row are not counted again as 旁观.
+	bool haveSpecSlot[33]{};
+	auto addSpecSlot = [&](int slot) {
+		if (slot < 1 || slot > 32 || nSpec >= 32 || haveSpecSlot[slot]) return;
+		PlayerInfo pi{};
+		if (!EngPlayerInfo(slot, &pi) || !pi.name[0] || PlayerInfoIsBot(pi)) return;
+		if (idleHumanUidKnown(pi.userid)) return;
+		haveSpecSlot[slot] = true;
+		specEnt[nSpec++] = slot;
+	};
+	if (pr && g_tbPrTeam.base >= 0 && g_tbPrConnected.base >= 0) {
+		for (int i = 1; i <= 32; ++i) {
+			int connected = 0, team = 0;
+			if (!TabPrRead(pr, g_tbPrConnected, i, &connected) || !connected) continue;
+			if (!TabPrRead(pr, g_tbPrTeam, i, &team) || team != 1) continue;
+			addSpecSlot(i);
+		}
+	} else {
+		for (int i = 1; i <= 32; ++i) {
+			void* e = EntGet(i);
+			if (!e || !EntReadable(e)) continue;
+			if (TabReadInt(e, g_offTeam, 0) != 1) continue;
+			addSpecSlot(i);
+		}
+	}
 	for (int k = 0; k < nSpec; ++k) {
 		PlayerInfo pi{};
-		if (!EngPlayerInfo(specEnt[k], &pi)) continue;
-		++g_tbSpecN;
-		++g_tbHumanN;
+		if (!EngPlayerInfo(specEnt[k], &pi) || !pi.name[0]) continue;
 		TabBoardRow tmp{};
 		TabBoardName(tmp, pi, nullptr);
+		if (!tmp.name[0]) continue;
+		++g_tbSpecN;
+		++g_tbHumanN;
 		const size_t have = wcslen(g_tbSpec);
 		if (have + wcslen(tmp.name) + 3 < 199) {
 			if (have) wcscat(g_tbSpec, en ? L", " : L"\x3001");
