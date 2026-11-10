@@ -1,10 +1,12 @@
 #pragma once
+#include "items.h"
 #include "layout.h"
 namespace b4b_hud {
 // Keep the provided VPK's groups and bottom-to-top weapon order. Reserve six
 // HUD units around each plate for the single rotating arrow. Missing weapons
 // use the existing icon system and continue after the original weapon rows.
 constexpr int SmallWidth=44,WeaponWidth=84,PlateHeight=16,Margin=6;
+constexpr int SmallColumns=4,SpecialIconLane=17;
 constexpr int SmallPitch=SmallWidth+2*Margin,WeaponPitch=WeaponWidth+2*Margin;
 constexpr int RowPitch=PlateHeight+2*Margin,BottomPadding=99;
 constexpr float ArrowHalf=1.8f,ArrowGap=.4f;
@@ -31,6 +33,7 @@ inline bool GridPosition(unsigned id,int& group,int& column,int& row){
     auto grid=Weapons();column=row=group=0;
     if(id<=4)row=int(id)-1;
     else if(id<=8){column=1;row=int(id)-5;}
+    else if(items::IsSpecial(id)){column=SmallColumns-1;row=int(id-items::SpecialFirst);}
     else if(id==9||id>=32){column=2;row=id==9?0:int(id)-31;}
     else{
         group=1;bool found=false;

@@ -43,7 +43,20 @@ static const char kSkeetoWsChangelogPendingFile[] = "skeeto_ws_show_changelog.tx
 static const char kSkeetoWsChangelogShownFile[] = "skeeto_ws_changelog_shown.txt";
 // Staging-only Apply failure receipt (under skeeto_update/). Not a game-root file.
 static const char kSkeetoWsApplyFailedFile[] = "skeeto_update\\apply_failed.txt";
+static const char kSkeetoWsApplyResultFile[] = "skeeto_update\\apply_result.txt";
 static bool SkeetoReadSemverFile(const char* path, char* out, size_t n);
+static bool SkeetoReadSmallTextFile(const char* path, char* out, size_t cap) {
+	if (!path || !out || cap < 2) return false;
+	out[0] = 0;
+	FILE* f = fopen(path, "rb");
+	if (!f) return false;
+	size_t n = fread(out, 1, cap - 1, f);
+	fclose(f);
+	out[n] = 0;
+	while (n && (out[n - 1] == '\n' || out[n - 1] == '\r' || out[n - 1] == ' '))
+		out[--n] = 0;
+	return n > 0;
+}
 
 static void SkeetoWorkshopWriteVersionMarker(const char* leaf, const char* ver) {
 	if (!leaf || !leaf[0] || !ver || !ver[0]) return;
@@ -452,16 +465,27 @@ static DWORD SkeetoInvokeUpdateEngine(const char* payload, const char* gameRoot,
         }
     } else {
         HANDLE waitFor[] = {acknowledged, process.hProcess};
-        if (WaitForMultipleObjects(2, waitFor, FALSE, 15000) != WAIT_OBJECT_0) {
+        DWORD ack = WaitForMultipleObjects(2, waitFor, FALSE, 15000);
+        if (ack != WAIT_OBJECT_0) {
             DWORD helperExit = STILL_ACTIVE;
             GetExitCodeProcess(process.hProcess, &helperExit);
-            if (helperExit == STILL_ACTIVE) {
-                TerminateProcess(process.hProcess, ERROR_TIMEOUT);
-                WaitForSingleObject(process.hProcess, 5000);
+            // AV/slow PowerShell can take longer than 15s to reach StartedEvent.
+            // If the helper is still alive, wait one more stretch before killing it.
+            if (helperExit == STILL_ACTIVE && ack == WAIT_TIMEOUT)
+                ack = WaitForMultipleObjects(2, waitFor, FALSE, 45000);
+            if (ack != WAIT_OBJECT_0) {
                 GetExitCodeProcess(process.hProcess, &helperExit);
+                if (helperExit == STILL_ACTIVE) {
+                    TerminateProcess(process.hProcess, ERROR_TIMEOUT);
+                    WaitForSingleObject(process.hProcess, 5000);
+                    GetExitCodeProcess(process.hProcess, &helperExit);
+                }
+                code = 1;
+                Log("workshop: exit updater did not acknowledge startup exit=0x%08lX; retry later", helperExit);
+            } else if (ownedProcess) {
+                *ownedProcess = process.hProcess;
+                process.hProcess = nullptr;
             }
-            code = 1;
-            Log("workshop: exit updater did not acknowledge startup exit=0x%08lX; retry later", helperExit);
         } else if (ownedProcess) {
             *ownedProcess = process.hProcess;
             process.hProcess = nullptr;
@@ -675,26 +699,37 @@ static bool SkeetoWorkshopNotifyRetryableError(const wchar_t* body, const char* 
 }
 
 // One session-scoped explain when Apply failed and READY is still pending.
-// Fork: pending READY silent (no receipt) / first-consent "please exit" tip /
-// this failure path. Never attach to the success Arm notify thread.
-static void SkeetoWorkshopNotifyApplyFailedOnce(const char* root, bool forceWithoutReceipt = false) {
+// Requires apply_failed.txt — quiet deferrals exit 0 without that receipt.
+// Never attach to the success Arm notify thread.
+static void SkeetoWorkshopNotifyApplyFailedOnce(const char* root) {
 	if (!root || !root[0] || !g_optWorkshopUpdate) return;
-	char readyPath[MAX_PATH]{}, failPath[MAX_PATH]{};
+	char readyPath[MAX_PATH]{}, failPath[MAX_PATH]{}, receipt[480]{};
 	snprintf(readyPath, sizeof(readyPath), "%s\\skeeto_update\\READY", root);
 	snprintf(failPath, sizeof(failPath), "%s\\%s", root, kSkeetoWsApplyFailedFile);
 	if (GetFileAttributesA(readyPath) == INVALID_FILE_ATTRIBUTES) return;
-	const bool hasReceipt = GetFileAttributesA(failPath) != INVALID_FILE_ATTRIBUTES;
-	// Next-session path requires the staging receipt. Live helper-death may force.
-	if (!hasReceipt && !forceWithoutReceipt) return;
-	const bool shown = SkeetoWorkshopNotifyRetryableError(
+	if (!SkeetoReadSmallTextFile(failPath, receipt, sizeof(receipt))) return;
+	const char* detail = receipt;
+	if (const char* bar = strchr(receipt, '|')) detail = bar + 1;
+	while (*detail == ' ') ++detail;
+	wchar_t reason[400]{};
+	if (!MultiByteToWideChar(CP_UTF8, 0, detail, -1, reason, _countof(reason))
+		&& !MultiByteToWideChar(CP_ACP, 0, detail, -1, reason, _countof(reason))) {
+		wcsncpy_s(reason, L"(see skeeto_update\\apply_failed.txt)", _TRUNCATE);
+	}
+	if (wcslen(reason) > 280) reason[280] = 0;
+	wchar_t body[900]{};
+	swprintf_s(body,
 		UiText(UiId::BootstrapApplyFailed,
-			L"退出后自动安装未完成（常见原因：关键文件仍被占用、安静等待超时或校验未通过）。\n"
+			L"退出后自动安装未完成。\n原因：%s\n"
 			L"暂存已保留，完全退出后会再试；不会强杀游戏。\n"
 			L"也可关闭游戏后运行包内「Setup_安装 维护 卸载.bat」，或按工坊/桌面包说明手工覆盖。"),
-		"apply failed; READY retained");
+		reason);
+	char logText[520]{};
+	snprintf(logText, sizeof(logText), "apply failed; READY retained; %s", receipt);
+	const bool shown = SkeetoWorkshopNotifyRetryableError(body, logText);
 	// Another error may already have used the session's one dialog. Keep an
 	// unreported failure for the next session rather than silently consuming it.
-	if (hasReceipt && shown) DeleteFileA(failPath);
+	if (shown) DeleteFileA(failPath);
 }
 
 static DWORD WINAPI SkeetoWorkshopNotifyThread(LPVOID) {
@@ -937,22 +972,23 @@ static void SkeetoWorkshopUpdateWorkerPump() {
 		if (WaitForSingleObject(g_wsApplyProcess, 0) == WAIT_TIMEOUT) return;
 		DWORD exitCode = 1;
 		GetExitCodeProcess(g_wsApplyProcess, &exitCode);
-		Log("workshop: exit updater ended code=%lu; recheck pending update", exitCode);
 		CloseHandle(g_wsApplyProcess); g_wsApplyProcess = nullptr;
 		s_retryAt = 0; s_readyRetryAt = 0;
-		// Secondary hook: helper died while this process still lives. exit 0 with
-		// no READY is success/no-op — never treat as failure. exit 2 stays manual.
-		if (exitCode != 0 && exitCode != 2) {
-			char gameRoot[MAX_PATH]{};
-			SkeetoGameRoot(gameRoot, sizeof(gameRoot));
-			if (gameRoot[0]) {
-				char readyPath[MAX_PATH]{};
-				snprintf(readyPath, sizeof(readyPath), "%s\\skeeto_update\\READY", gameRoot);
-				// Live helper ended with READY still pending: explain once now.
-				// Engine usually left apply_failed.txt; consume it if present.
-				if (GetFileAttributesA(readyPath) != INVALID_FILE_ATTRIBUTES)
-					SkeetoWorkshopNotifyApplyFailedOnce(gameRoot, true);
-			}
+		char gameRoot[MAX_PATH]{}, readyPath[MAX_PATH]{}, resultPath[MAX_PATH]{}, outcome[480]{};
+		SkeetoGameRoot(gameRoot, sizeof(gameRoot));
+		if (gameRoot[0]) {
+			snprintf(readyPath, sizeof(readyPath), "%s\\skeeto_update\\READY", gameRoot);
+			snprintf(resultPath, sizeof(resultPath), "%s\\%s", gameRoot, kSkeetoWsApplyResultFile);
+			const bool haveReady = GetFileAttributesA(readyPath) != INVALID_FILE_ATTRIBUTES;
+			const bool haveOutcome = SkeetoReadSmallTextFile(resultPath, outcome, sizeof(outcome));
+			Log("workshop: exit updater ended code=%lu ready=%d outcome=%s",
+				exitCode, haveReady ? 1 : 0, haveOutcome ? outcome : "-");
+			// exit 0 + READY retained = defer/no-op, never BootstrapApplyFailed.
+			// Hard failures leave apply_failed.txt; only that receipt pops UI.
+			if (exitCode != 0 && exitCode != 2 && haveReady)
+				SkeetoWorkshopNotifyApplyFailedOnce(gameRoot);
+		} else {
+			Log("workshop: exit updater ended code=%lu; recheck pending update", exitCode);
 		}
 	}
 

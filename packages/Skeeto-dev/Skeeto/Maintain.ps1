@@ -279,10 +279,44 @@ function Find-SktGameRoot {
     if (-not (Test-SktGameRoot $chosen)) { throw (Get-SktText '未找到有效游戏目录。' 'No valid game directory was found.') }
     return (Resolve-Path -LiteralPath $chosen).ProviderPath.TrimEnd('\')
 }
+function Test-SktGamesRunning {
+    return @(Get-Process -Name left4dead2,left4dead2_skeeto,left4dead2_necola -ErrorAction SilentlyContinue).Count -gt 0
+}
 function Assert-SktStopped {
-    if (Get-Process -Name left4dead2,left4dead2_skeeto,left4dead2_necola -ErrorAction SilentlyContinue) {
+    if (Test-SktGamesRunning) {
         throw (Get-SktText '请完全退出游戏及旧启动器后重试；脚本不会结束进程。' 'Exit the game and legacy launchers before retrying. This tool will not terminate them.')
     }
+}
+function New-SktDeferException([string]$Code,[string]$Zh,[string]$En) {
+    return [InvalidOperationException]::new(('DEFER:' + $Code + '|' + (Get-SktText $Zh $En)))
+}
+function New-SktOccupancyException([string]$Relative) {
+    return [IO.IOException]::new(('OCCUPANCY:' + $Relative + '|' + (Get-SktText ("无法独占打开关键文件，整笔更新中止（未改已装文件，READY 保留）：$Relative") ("Cannot exclusively open critical file; whole update aborted (installed files unchanged, READY kept): $Relative"))))
+}
+function Write-SktApplyOutcome([string]$Root,[string]$Code,[string]$Detail='') {
+    if (-not $Root) { return }
+    $line = if ($Detail) { "$Code|$Detail" } else { $Code }
+    try { Write-SktControl (Get-SktPath $Root 'skeeto_update\apply_result.txt' -Internal) $line }
+    catch { Write-Warning 'apply_result write deferred.' }
+}
+function Wait-SktExclusiveOpen([string]$Path,[string]$Relative,[int]$TimeoutSeconds = 90) {
+    $deadline = [DateTime]::UtcNow.AddSeconds([Math]::Max(1, $TimeoutSeconds))
+    $delay = 400
+    while ($true) {
+        try {
+            $stream = [IO.File]::Open($Path,[IO.FileMode]::Open,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
+            $stream.Dispose()
+            return
+        } catch {
+            if (Test-SktGamesRunning) { throw (New-SktDeferException 'GAME_RUNNING' '请完全退出游戏及旧启动器后重试；脚本不会结束进程。' 'Exit the game and legacy launchers before retrying. This tool will not terminate them.') }
+            if ([DateTime]::UtcNow -ge $deadline) { throw (New-SktOccupancyException $Relative) }
+            Start-Sleep -Milliseconds $delay
+            $delay = [Math]::Min(8000, [int]($delay * 1.5))
+        }
+    }
+}
+function Test-SktCriticalRelative([string]$Relative) {
+    return $Relative -eq 'skeeto.dll' -or $Relative -eq 'bin\wininet.dll'
 }
 function Set-SktFile([string]$Source,[string]$Target,$Before,[string]$After) {
     if ((Get-SktHash $Target) -ne $Before) { throw (Get-SktText "文件在操作前已改变：$Target" "File changed before the operation: $Target") }
@@ -428,7 +462,15 @@ function Get-SktPayload([string]$Root) {
     $metadata=Get-SktPayloadMetadata $Root
     foreach ($entry in $metadata.files) {
         if ($entry.role -eq 'document') { continue } # Optional content cannot gate core updates.
-        if ((Get-SktHash (Get-SktPath $Root $entry.relative)) -ne $entry.hash) { throw (Get-SktText "包文件缺失或哈希不符：$($entry.relative)" "Package file missing or hash mismatch: $($entry.relative)") }
+        $actual=Get-SktHash (Get-SktPath $Root $entry.relative)
+        if ($actual -eq $entry.hash) { continue }
+        # Apply only installs core/proxy into the game root. Stage-only tools
+        # (Setup bat, etc.) must not fail a validated envelope after Prepare.
+        if ($Mode -eq 'Apply' -and $entry.role -eq 'tool' -and $entry.relative -notin @('Skeeto\Maintain.ps1','Skeeto\Manifest.json')) {
+            Write-SktMessage (Get-SktText "暂存工具文件校验跳过（不影响核心安装）：$($entry.relative)" "Stage tool hash skipped for Apply (core install unaffected): $($entry.relative)") -Color Yellow
+            continue
+        }
+        throw (Get-SktText "包文件缺失或哈希不符：$($entry.relative)" "Package file missing or hash mismatch: $($entry.relative)")
     }
     $version = [IO.File]::ReadAllText((Get-SktPath $Root 'VERSION.txt'))
     $marker = [IO.File]::ReadAllText((Get-SktPath $Root 'SKEETO_WORKSHOP.txt'))
@@ -488,20 +530,30 @@ function Restore-SktTransaction($Journal,[string]$Directory) {
     }
 }
 function Invoke-SktTransaction([string]$Root,[array]$Changes,[string]$Operation) {
-    Assert-SktStopped
+    # Process table is Soft for Apply: defer instead of writing a failure receipt.
+    # Mid-write Assert below stays Hard so a Steam relaunch can roll back.
+    if (Test-SktGamesRunning) {
+        if ($Operation -eq 'Apply') {
+            throw (New-SktDeferException 'GAME_RUNNING' '请完全退出游戏及旧启动器后重试；脚本不会结束进程。' 'Exit the game and legacy launchers before retrying. This tool will not terminate them.')
+        }
+        Assert-SktStopped
+    }
     $changesToMake = @($Changes | Where-Object { $_.before -ne $_.after })
     if (-not $changesToMake.Count) { Write-SktMessage (Get-SktText '文件已是目标状态，无需重复修改。' 'Files already match the target; no changes needed.'); return $null }
-    # Honesty red line: any critical target that cannot be opened exclusively
-    # aborts the whole transaction. Never skip a locked skeeto.dll / bin\wininet.dll
-    # and still report success or clear READY.
+    # Honesty red line: locked skeeto.dll / bin\wininet.dll aborts the whole
+    # transaction. Poll exclusive open on those two; other before-targets keep
+    # a single exclusive probe so non-critical locks do not burn a long wait.
     foreach ($entry in $changesToMake) {
         $target = Get-SktPath $Root $entry.relative
-        if ($entry.before) {
+        if (-not $entry.before) { continue }
+        if (Test-SktCriticalRelative $entry.relative) {
+            Wait-SktExclusiveOpen $target $entry.relative
+        } else {
             try {
                 $stream = [IO.File]::Open($target,[IO.FileMode]::Open,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
                 $stream.Dispose()
             } catch {
-                throw (Get-SktText "无法独占打开关键文件，整笔更新中止（未改已装文件，READY 保留）：$($entry.relative)" "Cannot exclusively open critical file; whole update aborted (installed files unchanged, READY kept): $($entry.relative)")
+                throw (New-SktOccupancyException $entry.relative)
             }
         }
     }
@@ -510,7 +562,17 @@ function Invoke-SktTransaction([string]$Root,[array]$Changes,[string]$Operation)
     $id = 'current'
     $directory = Get-SktPath $Root ('skeeto_migrate_backup\' + $id) -Internal
     Remove-SktOldUpdates $Root '' $id
-    if ([IO.Directory]::Exists($directory)) { throw [IO.IOException]::new((Get-SktText '上次恢复数据尚未清理，未创建额外备份。' 'Previous recovery data could not be cleared; no additional backup was created.')) }
+    if ([IO.Directory]::Exists($directory)) {
+        if ($Operation -eq 'Apply') {
+            $orphan = $directory + '.orphan-' + [DateTime]::UtcNow.ToString('yyyyMMddHHmmss')
+            try { [IO.Directory]::Move($directory, $orphan) }
+            catch {
+                throw (New-SktDeferException 'BACKUP_SLOT' '上次恢复数据尚未清理，未创建额外备份。' 'Previous recovery data could not be cleared; no additional backup was created.')
+            }
+        } else {
+            throw [IO.IOException]::new((Get-SktText '上次恢复数据尚未清理，未创建额外备份。' 'Previous recovery data could not be cleared; no additional backup was created.'))
+        }
+    }
     [IO.Directory]::CreateDirectory($directory) | Out-Null
     $journal = [pscustomobject]@{schema=1; gameRoot=$Root; operation=$Operation; status='prepared'; entries=$changesToMake}
     $journalPath = Join-Path $directory 'transaction.json'
@@ -737,16 +799,16 @@ function Get-SktDllSemver([string]$Root) {
 }
 
 function Wait-SktGamesStopped {
-    # After the accepted PID exits, a quick Steam relaunch can appear before
-    # Assert-SktStopped. Poll with a deadline so Apply finishes when that
-    # short-lived instance exits instead of failing immediately and keeping READY.
     param([int]$TimeoutSeconds = 90, [int]$PollMilliseconds = 250)
+    # After the accepted PID exits, a quick Steam relaunch can appear before
+    # mutation. Poll with a deadline so Apply finishes when that short-lived
+    # instance exits. Timeout is a deferral (READY kept, no apply_failed), not
+    # a damaged-package failure.
     $deadline = [DateTime]::UtcNow.AddSeconds([Math]::Max(1, $TimeoutSeconds))
     while ($true) {
-        $running = @(Get-Process -Name left4dead2,left4dead2_skeeto,left4dead2_necola -ErrorAction SilentlyContinue)
-        if (-not $running.Count) { return }
+        if (-not (Test-SktGamesRunning)) { return }
         if ([DateTime]::UtcNow -ge $deadline) {
-            throw (Get-SktText '请完全退出游戏及旧启动器后重试；脚本不会结束进程。' 'Exit the game and legacy launchers before retrying. This tool will not terminate them.')
+            throw (New-SktDeferException 'QUIET_WAIT' '请完全退出游戏及旧启动器后重试；脚本不会结束进程。' 'Exit the game and legacy launchers before retrying. This tool will not terminate them.')
         }
         Start-Sleep -Milliseconds ([Math]::Max(50, $PollMilliseconds))
     }
@@ -891,7 +953,9 @@ function Test-SktNativeNecola([string]$Path) {
         try { $ack.Set() | Out-Null } finally { $ack.Dispose() }
     }
     Wait-SktGameInstance
-    if ($Mode -ne 'Prepare') {
+    # Apply already quiet-waited. A duplicate Assert here only turned relaunch
+    # races into failure receipts. Uninstall/Migrate/Clean still need a hard stop.
+    if ($Mode -notin @('Prepare','Apply')) {
         Assert-SktStopped
     }
     if ($Mode -eq 'Clean') {
@@ -1055,6 +1119,14 @@ function Test-SktNativeNecola([string]$Path) {
         $action=if($legacyMigration){Get-SktText '旧版迁移' 'Legacy migration'}elseif($oldCore -or $currentProxy){Get-SktText '维护 / 重装' 'Repair / reinstall'}else{Get-SktText '首次安装' 'First install'}
         Write-SktMessage (Get-SktText "操作=$action；目标游戏目录=$root" "Operation=$action; game root=$root") -Color Cyan
     }
+    # Apply samples installed bytes after exit. OpenRead alone mislabels a
+    # held core/proxy lock as APPLY_FAIL; wait the same exclusive gate first.
+    if ($Mode -eq 'Apply') {
+        foreach ($relative in @('skeeto.dll','bin\wininet.dll')) {
+            $path = Get-SktPath $root $relative
+            if ([IO.File]::Exists($path)) { Wait-SktExclusiveOpen $path $relative }
+        }
+    }
     foreach ($entry in $metadata.files) {
         # Package markers and tools stay in the package or update stage.
         # The game root receives the loading DLLs; the changelog is copied after.
@@ -1120,6 +1192,7 @@ function Test-SktNativeNecola([string]$Path) {
             $failNote = Get-SktPath $root 'skeeto_update\apply_failed.txt' -Internal
             if ([IO.File]::Exists($failNote)) { [IO.File]::Delete($failNote) }
         } catch { Write-Warning 'apply_failed cleanup deferred.' }
+        Write-SktApplyOutcome $root 'OK'
     }
     if ($bridge) { Write-SktMessage (Get-SktText '核心已更新，旧启动入口仍可用；尚未安装 Steam 代理。请从游戏外完整包运行“Setup_安装 维护 卸载.bat”完成迁移；迁移成功后会清理旧 Skeeto 启动文件。' 'Core updated; the legacy entry still works. The Steam proxy is not installed yet. Run Setup_安装 维护 卸载.bat from the complete package outside the game folder; successful migration removes the old Skeeto entry files.') }
     else {
@@ -1130,18 +1203,32 @@ function Test-SktNativeNecola([string]$Path) {
     }
     exit 0
 } catch {
-    Write-SktMessage ((Get-SktText "操作失败：" "Operation failed: ") + $_.Exception.Message) -Failure
-    if ($Mode -eq 'Apply' -and $script:MaintenanceLocked -and $attempt -lt 3) {
+    $failure = $_.Exception.Message
+    $isDefer = $failure.StartsWith('DEFER:')
+    $isOccupancy = $failure.StartsWith('OCCUPANCY:')
+    Write-SktMessage ((Get-SktText "操作失败：" "Operation failed: ") + $failure) -Failure:(-not $isDefer)
+    if ($isDefer -and $Mode -eq 'Apply' -and $script:MaintenanceLocked -and (Get-Variable root -ErrorAction SilentlyContinue)) {
+        # Package and READY are intact. Exit 0 so the live helper path does not
+        # treat quiet-wait / relaunch overlap as BootstrapApplyFailed.
+        $code,$detail = if ($failure.Contains('|')) { $failure.Split('|',2) } else { @($failure,'') }
+        Write-SktApplyOutcome $root $code $detail
+        exit 0
+    }
+    # Occupancy already polled; other Soft IO can still use short retries.
+    if ($Mode -eq 'Apply' -and $script:MaintenanceLocked -and -not $isOccupancy -and $attempt -lt 3) {
         Write-SktMessage (Get-SktText '保留暂存，稍后自动重试。' 'Stage retained; retrying automatically shortly.')
         Start-Sleep -Seconds (2 * ($attempt+1))
         continue
     }
     # Staging-only failure receipt for the next game session (not game-root).
-    # DLL shows one readable explain via NotifyRetryableError; do not clear READY.
+    # DLL shows the receipt text via NotifyRetryableError; do not clear READY.
     if ($Mode -eq 'Apply' -and $script:MaintenanceLocked -and (Get-Variable root -ErrorAction SilentlyContinue) -and [IO.File]::Exists((Get-SktPath $root 'skeeto_update\READY'))) {
         try {
-            $note = (Get-SktText '自动安装未完成。' 'Automatic install did not finish.') + ' ' + $_.Exception.Message
+            $code = if ($isOccupancy) { ($failure.Split('|',2)[0]) } elseif ($failure -match '哈希|hash|校验|verif') { 'VALIDATE' } else { 'APPLY_FAIL' }
+            $detail = if ($failure.Contains('|')) { $failure.Split('|',2)[1] } else { $failure }
+            $note = $code + '|' + (Get-SktText '自动安装未完成。' 'Automatic install did not finish.') + ' ' + $detail
             Write-SktControl (Get-SktPath $root 'skeeto_update\apply_failed.txt' -Internal) $note
+            Write-SktApplyOutcome $root $code $detail
         } catch { Write-Warning 'apply_failed receipt deferred.' }
     }
     exit 1

@@ -2811,7 +2811,7 @@ static int g_supplyScanHoldSec = 5;
 static constexpr int kSupplyScanSlotMin = 32;
 static constexpr int kSupplyScanSlotMax = 512;
 static int g_supplyScanSlotLimit = 192;
-static constexpr int kSupplyScanKindCount = 42;
+static constexpr int kSupplyScanKindCount = 46;
 static uint16_t g_supplyScanHudCount[kSupplyScanKindCount]{};
 static uint8_t g_supplyScanHudSeen[256]{};
 static unsigned long long g_supplyScanFilter = (1ull << kSupplyScanKindCount) - 1ull;
@@ -3036,7 +3036,7 @@ static const wchar_t* PanelStyleBorderName(int i) {
 static int g_tabBoardDoubleMs = 280; // double-tap window; INI only (tab_board_double_ms=150..600)
 static bool g_tabBoardSiStatus = true; // SI class / HP / state rows (coop AI SI group, versus infected detail)
 static int g_tabBoardMaxRows = 16;    // 8/12/16/24/32
-static int g_tbCmdDone = 0;           // menu [7]/[8] last executed (1/2), shown briefly
+static int g_tbCmdDone = 0;           // menu [7]/[8]/[9] digit after a verified TAB bind
 static DWORD g_tbCmdDoneUntil = 0;
 static bool g_tbQuietPaint = false; // board drawn during HUD visual quiet: no material icons
 static bool g_tabBoardShow = false; // Skeeto board currently held open (runtime only)
@@ -26001,7 +26001,7 @@ static bool RadarMenuItemEnabled(unsigned label) {
 	return category < 0 || skeeto_nav::RadarGet(category) != 0;
 }
 static int RadarMenuItemCount(bool enabledOnly) {
-	if (!enabledOnly) return skeeto_nav::kRadarLabelCount - 1; // Labels 1..34; unsupported entries remain visibly disabled.
+	if (!enabledOnly) return skeeto_nav::kRadarLabelCount - 1; // Labels 1..Count-1; unsupported entries remain visibly disabled.
 	int count = 0;
 	for (unsigned label = 1; label < (unsigned)skeeto_nav::kRadarLabelCount; ++label) if (RadarMenuItemEnabled(label)) ++count;
 	return count;
@@ -28109,6 +28109,10 @@ static const SupplyScanKindDef kSupplyScanKinds[] = {
 	{0, nullptr, nullptr, 3, 3, UiId::Text_9cb786d7, L"盾牌", "riotshield"},
 	{20, "CChainsaw", nullptr, 3, 3, UiId::RadarItem31, L"电锯"},
 	{22, "CWeaponAmmoSpawn", "CItemAmmoPack", 1, 4, UiId::RadarItem8, L"弹药堆"},
+	{28, "CColaBottles", nullptr, 1, 4, UiId::RadarItem35, L"可乐"},
+	{27, "CGnome", nullptr, 1, 4, UiId::RadarItem36, L"侏儒"},
+	{31, "CItemUpgradePackExplosive", nullptr, 1, 4, UiId::RadarItem37, L"高爆弹"},
+	{30, "CItemUpgradePackIncendiary", nullptr, 1, 4, UiId::RadarItem38, L"燃烧弹"},
 	// Laser sights are not discoverable by the world-item scan path; do not keep a
 	// filter row that can never light up.
 };
@@ -28118,7 +28122,7 @@ static unsigned SupplyScanIconLabel(int kind) {
 		1, 2, 3, 4, 5, 6, 7,
 		11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29,
 		31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31, 31,
-		32, 8
+		32, 8, 35, 36, 37, 38
 	};
 	static_assert(sizeof(map) == kSupplyScanKindCount, "supply scan icon map");
 	return kind >= 0 && kind < kSupplyScanKindCount ? map[kind] : 0;
@@ -43929,12 +43933,23 @@ static void MenuProcessKeyImpl(int digit) {
 		case TabBoardMenuAction::RestoreTab:
 		case TabBoardMenuAction::BindTabSkeeto:
 		case TabBoardMenuAction::BindTabVanilla: {
-			const char* bindCmd = item->action == TabBoardMenuAction::RestoreTab ? "bind TAB +showscores"
-				: (item->action == TabBoardMenuAction::BindTabSkeeto ? "bind TAB +skeeto_tab" : "bind TAB +skeeto_tab_vanilla");
-			EngClientCmd(bindCmd);
-			g_tbCmdDone = digit;
-			g_tbCmdDoneUntil = GetTickCount() + 2500u;
-			Log("menu: tabBoard %s", bindCmd);
+			// bind lacks FCVAR_CLIENTCMD_CAN_EXECUTE; restricted ClientCmd
+			// silently drops it (Edit Keys works because it writes KeyValues).
+			const char* binding = item->action == TabBoardMenuAction::RestoreTab ? "+showscores"
+				: (item->action == TabBoardMenuAction::BindTabSkeeto ? "+skeeto_tab" : "+skeeto_tab_vanilla");
+			char bindCmd[64]{};
+			snprintf(bindCmd, sizeof(bindCmd), "bind TAB %s", binding);
+			EngClientCmdUnrestricted(bindCmd);
+			const char* key = EngLookupBinding(binding);
+			const bool ok = key && !_stricmp(key, "TAB");
+			if (ok) {
+				g_tbCmdDone = digit;
+				g_tbCmdDoneUntil = GetTickCount() + 2500u;
+			} else {
+				g_tbCmdDone = 0;
+				g_tbCmdDoneUntil = 0;
+			}
+			Log("menu: tabBoard %s -> %s", bindCmd, ok ? "ok" : "fail");
 			EngClientCmd("play buttons/button14");
 			return;
 		}

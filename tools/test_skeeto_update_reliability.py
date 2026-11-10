@@ -25,9 +25,14 @@ def stamp_dll_semver(path: Path, version: str) -> None:
     match = re.search(br'SkeetoInstalledSemver=\d+\.\d+\.\d+', data)
     if not match:
         return
+    field = match.end() - match.start()
     replacement = f'SkeetoInstalledSemver={version}'.encode('ascii')
-    if len(replacement) != match.end() - match.start():
+    if len(replacement) > field:
         raise AssertionError(f'cannot stamp {version} over {match.group()!r}')
+    # Shorter fixtures (2.0.0) may overwrite a longer shipped marker (2.2.15);
+    # pad with NULs so the PE size stays fixed and the semver regex still stops.
+    if len(replacement) < field:
+        replacement = replacement + (b'\0' * (field - len(replacement)))
     data[match.start():match.end()] = replacement
     path.write_bytes(data)
 
@@ -69,8 +74,8 @@ def command(root, mode, *extra):
             '-PayloadRoot', str(root / 'skeeto_update'), '-NonInteractive', *extra]
 
 
-def invoke(root, mode, expected=0, *extra):
-    result = subprocess.run(command(root, mode, *extra), capture_output=True, timeout=45)
+def invoke(root, mode, expected=0, *extra, timeout=45):
+    result = subprocess.run(command(root, mode, *extra), capture_output=True, timeout=timeout)
     assert result.returncode == expected, (mode, result.returncode, (result.stdout + result.stderr).decode('utf-8', errors='replace'))
     return result
 
@@ -268,8 +273,12 @@ def check_review_recovery():
     (slot/'original-0.bin').write_bytes(old);(slot/'result.txt').write_text('committed')
     kernel,handle=lock(slot/'original-0.bin')
     try:
-        invoke(root,'Apply',1)
+        invoke(root,'Apply',0)
         assert (slot/'transaction.json').exists(), 'partial cleanup destroyed ownership evidence'
+        assert (root/'skeeto_update/READY').exists()
+        assert not (root/'skeeto_update/apply_failed.txt').exists()
+        outcome=(root/'skeeto_update/apply_result.txt').read_text(encoding='utf-8', errors='replace')
+        assert outcome.startswith('DEFER:BACKUP_SLOT'), outcome
     finally: kernel.CloseHandle(handle)
     invoke(root,'Apply');assert_applied(root)
     assert not slot.exists()
@@ -562,14 +571,18 @@ int main(int argc,char**argv){
             pending=stage(root,'2.0.2');prepared(root)
             assert not (root/'skeeto_migrate_backup/active.json').exists()
         actor=native/('current_worker.exe' if mode in ('current-core-recovery','same-version-ready','current-version') else 'worker.exe')
-        result=subprocess.run([str(actor),str(root),mode],capture_output=True,timeout=60)
+        # ack-failure keeps the helper alive without Set(); Arm waits 15s+45s before kill.
+        result=subprocess.run([str(actor),str(root),mode],capture_output=True,timeout=150 if mode=='ack-failure' else 60)
         (native/(mode+'.log')).write_bytes(result.stdout+result.stderr)
         assert result.returncode==0,(mode,result.returncode,result.stdout+result.stderr)
         if mode not in ('idle','current-version','ack-failure','declined-update'):
             deadline=time.monotonic()+30
             while time.monotonic()<deadline:
                 core, staged = root/'skeeto.dll', root/'skeeto_update/skeeto.dll'
-                if staged.is_file() and core.is_file() and digest(core)==digest(staged) and not (root/'skeeto_update/READY').exists() and not (root/'skeeto_migrate_backup/active.json').exists() and not (root/'Skeeto/Manifest.json').exists() and not (root/'VERSION.txt').exists(): break
+                try:
+                    if staged.is_file() and core.is_file() and digest(core)==digest(staged) and not (root/'skeeto_update/READY').exists() and not (root/'skeeto_migrate_backup/active.json').exists() and not (root/'Skeeto/Manifest.json').exists() and not (root/'VERSION.txt').exists(): break
+                except (PermissionError, OSError):
+                    pass  # Apply may still hold the core briefly after ACK.
                 time.sleep(.2)
             assert_applied(root)
             assert not (root/'Skeeto/Manifest.json').exists()
@@ -617,10 +630,11 @@ def main():
 
     root=fixture('critical-lock');stage(root);prepared(root);old=digest(root/'skeeto.dll')
     kernel,handle=lock(root/'skeeto.dll')
-    try: invoke(root,'Apply',1)
+    try: invoke(root,'Apply',1, timeout=120)
     finally: kernel.CloseHandle(handle)
     assert digest(root/'skeeto.dll')==old and (root/'skeeto_update/READY').exists()
-    assert (root/'skeeto_update/apply_failed.txt').is_file()
+    failed=(root/'skeeto_update/apply_failed.txt').read_text(encoding='utf-8', errors='replace')
+    assert failed.startswith('OCCUPANCY:skeeto.dll|'), failed
     invoke(root,'Apply');assert_applied(root)
     assert not (root/'skeeto_update/apply_failed.txt').exists()
     passed('critical file lock retains READY and succeeds after lock release')
@@ -630,13 +644,34 @@ def main():
     root=fixture('critical-lock-proxy');stage(root);prepared(root)
     old_core=digest(root/'skeeto.dll'); old_proxy=digest(root/'bin/wininet.dll')
     kernel,handle=lock(root/'bin/wininet.dll')
-    try: invoke(root,'Apply',1)
+    try: invoke(root,'Apply',1, timeout=120)
     finally: kernel.CloseHandle(handle)
     assert digest(root/'skeeto.dll')==old_core and digest(root/'bin/wininet.dll')==old_proxy
-    assert (root/'skeeto_update/READY').exists() and (root/'skeeto_update/apply_failed.txt').is_file()
+    assert (root/'skeeto_update/READY').exists()
+    failed=(root/'skeeto_update/apply_failed.txt').read_text(encoding='utf-8', errors='replace')
+    assert failed.startswith('OCCUPANCY:bin\\wininet.dll|') or failed.startswith('OCCUPANCY:bin/wininet.dll|'), failed
     invoke(root,'Apply');assert_applied(root)
     assert not (root/'skeeto_update/apply_failed.txt').exists()
     passed('locked proxy fails whole Apply, keeps READY + apply_failed; succeeds after unlock')
+
+    def defer_quiet(text):
+        needle="param([int]$TimeoutSeconds = 90, [int]$PollMilliseconds = 250)"
+        assert 'function Wait-SktGamesStopped' in text and needle in text
+        # Inject after param(); a statement before param() is a ParserError.
+        return text.replace(needle, needle+"\n    throw (New-SktDeferException 'QUIET_WAIT' 'quiet wait injected' 'quiet wait injected')\n", 1)
+    root=fixture('apply-defer-quiet-wait');stage(root, inject=defer_quiet);prepared(root);old=digest(root/'skeeto.dll')
+    waiter=subprocess.Popen(['powershell.exe','-NoProfile','-Command','Start-Sleep -Seconds 1'])
+    start=subprocess.check_output(
+        ['powershell.exe','-NoProfile','-Command',
+         f'(Get-Process -Id {waiter.pid}).StartTime.ToUniversalTime().ToFileTimeUtc()'],
+        text=True).strip()
+    assert waiter.wait(timeout=10)==0
+    invoke(root,'Apply',0,'-WaitPid',str(waiter.pid),'-WaitStartTime',start)
+    assert digest(root/'skeeto.dll')==old and (root/'skeeto_update/READY').exists()
+    assert not (root/'skeeto_update/apply_failed.txt').exists()
+    outcome=(root/'skeeto_update/apply_result.txt').read_text(encoding='utf-8', errors='replace')
+    assert outcome.startswith('DEFER:QUIET_WAIT'), outcome
+    passed('quiet-wait timeout defers with exit 0, keeps READY, and does not write apply_failed')
 
     root=fixture('transient-lock-auto-retry');stage(root);prepared(root)
     kernel,handle=lock(root/'skeeto.dll')

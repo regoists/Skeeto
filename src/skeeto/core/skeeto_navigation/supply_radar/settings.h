@@ -5,14 +5,14 @@
 // SupplyRadar 1.3.6 option set, stored in Skeeto's ini by the proxy. Index
 // positions are mirrored by skeeto_navigation.h (kRadarItemBase/LayoutBase/SettingCount).
 namespace supplyradar { namespace options {
-constexpr unsigned LabelCount=35;
+constexpr unsigned LabelCount=39;
 enum Index {Enable,Range,ShowCount,Scale,Opacity,Direction,Height,Spectator,MapMetadata,DigitFont,Rows,Columns,
     Medical,Throwables,Weapons,ItemBase,LayoutBase=ItemBase+LabelCount,Count=LayoutBase+LabelCount*4};
 inline int values[Count]{};
 // Labels with no confirmed pickup behaviour (generic weapon, pistol, magnum,
 // melee, chainsaw) stay unsupported, as in the upstream option table.
 inline bool Supported(unsigned id){return id>=1&&id<LabelCount&&id!=10&&id!=22&&id!=23&&id!=30&&id!=31;}
-// 0 medical, 1 throwables, 2 weapons, 3 individually switched (ammo, laser, gas can, fireworks, safehouse).
+// 0 medical, 1 throwables, 2 weapons, 3 individually switched (ammo, laser, world supplies, safehouse, specials).
 inline int Group(unsigned id){if(!Supported(id))return -1;return id>=32?3:id<=4?0:id<=7?1:id>=11?2:3;}
 inline bool EnabledId(unsigned id){
     int group=Group(id);if(group<0||!values[ItemBase+id])return false;
@@ -42,8 +42,9 @@ inline void Reset(){
     values[Scale]=values[Opacity]=100;values[Rows]=8;values[Columns]=2;
     values[Medical]=values[Throwables]=values[Weapons]=1;
     for(unsigned id=0;id<LabelCount;++id){
-        // Gas cans and fireworks are new, optional world supplies; everything else starts enabled.
-        values[ItemBase+id]=Supported(id)&&id!=32&&id!=33?1:0;
+        // Optional world supplies and specials stay off until chosen; everything else starts enabled.
+        const bool optionalWorld=id==32||id==33||(id>=35&&id<LabelCount);
+        values[ItemBase+id]=Supported(id)&&!optionalWorld?1:0;
         values[LayoutBase+id*4+3]=100;
     }
 }

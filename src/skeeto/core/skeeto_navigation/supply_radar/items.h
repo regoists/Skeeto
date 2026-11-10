@@ -30,7 +30,11 @@ inline Kind FromClass(const char* name){
     for(auto gun:guns)if(Same(name,gun))return Kind::Weapon;return Kind::None;
 }
 // Text IDs also select independent weapon filters. The category switch remains a master.
-enum class Label {None,Medical,Defibrillator,Pills,Adrenaline,Molotov,PipeBomb,Bile,Ammo,Laser,Weapon,AK,M4,Military,Hunting,MAC,UZI,AWP,Scout,Scar,Grenade,M60,Pistol,Magnum,Pump,Chrome,Auto,Spas,MP5,SG552,Melee,Chainsaw,GasCan,Fireworks,Safehouse,Count};
+enum class Label {None,Medical,Defibrillator,Pills,Adrenaline,Molotov,PipeBomb,Bile,Ammo,Laser,Weapon,AK,M4,Military,Hunting,MAC,UZI,AWP,Scout,Scar,Grenade,M60,Pistol,Magnum,Pump,Chrome,Auto,Spas,MP5,SG552,Melee,Chainsaw,GasCan,Fireworks,Safehouse,
+    Cola,Gnome,ExplosiveAmmo,IncendiaryAmmo,Count};
+// Label IDs are also saved layout keys; append new labels after Safehouse.
+constexpr unsigned SpecialFirst=unsigned(Label::Cola),SpecialCount=unsigned(Label::Count)-SpecialFirst;
+constexpr bool IsSpecial(unsigned id){return id-SpecialFirst<SpecialCount;}
 inline Label DefaultLabel(Kind k){return Label(unsigned(k));}
 struct WeaponDefinition {int id;const char* classname;Label label;};
 static const WeaponDefinition weapons[]={
@@ -55,11 +59,16 @@ static const WeaponDefinition weapons[]={
     {34,"CRifle_SG552",Label::SG552},
     {19,"CTerrorMeleeWeapon",Label::Melee},
     {20,"CChainsaw",Label::Chainsaw},
+    {28,"CColaBottles",Label::Cola},
+    {27,"CGnome",Label::Gnome},
+    {31,"CItemUpgradePackExplosive",Label::ExplosiveAmmo},
+    {30,"CItemUpgradePackIncendiary",Label::IncendiaryAmmo},
 };
 inline Label WeaponLabel(int id){for(const auto& w:weapons)if(w.id==id)return w.label;return DefaultLabel(FromWeaponID(id));}
 inline Label ClassLabel(const char* name){for(const auto& w:weapons)if(Same(name,w.classname))return w.label;return DefaultLabel(FromClass(name));}
 inline const WCHAR* Text(Label label){
-    static const WCHAR* names[]={L"",L"包",L"电",L"药",L"针",L"火",L"雷",L"胆汁",L"子弹",L"激光",L"未知",L"ak",L"m4",L"30",L"15",L"mac",L"uzi",L"awp",L"scout",L"scar",L"榴弹",L"m60",L"手枪",L"沙鹰",L"木喷",L"铁喷",L"连喷",L"spas",L"mp5",L"sg552",L"近战",L"电锯",L"油桶",L"烟花盒",L"终点安全屋"};
+    static const WCHAR* names[]={L"",L"包",L"电",L"药",L"针",L"火",L"雷",L"胆汁",L"子弹",L"激光",L"未知",L"ak",L"m4",L"30",L"15",L"mac",L"uzi",L"awp",L"scout",L"scar",L"榴弹",L"m60",L"手枪",L"沙鹰",L"木喷",L"铁喷",L"连喷",L"spas",L"mp5",L"sg552",L"近战",L"电锯",L"油桶",L"烟花盒",L"终点安全屋",L"可乐",L"侏儒",L"高爆弹",L"燃烧弹"};
+    static_assert(sizeof(names)/sizeof(names[0])==unsigned(Label::Count),"Item text mapping");
     return unsigned(label)<unsigned(Label::Count)?names[unsigned(label)]:L"未知";
 }
 // Exact model matching: avoid treating unrelated physics props as supplies.
@@ -75,6 +84,10 @@ inline Label PhysicsSupply(const char* model){
        ModelEquals(model,"models/props_industrial/barrel_fuel.mdl")||
        ModelEquals(model,"models/props_c17/oildrum001_explosive.mdl"))return Label::GasCan;
     if(ModelEquals(model,"models/props_junk/explosive_box001.mdl"))return Label::Fireworks;
+    // Dead Center's store cola and Dark Carnival's gallery prize spawn as
+    // prop_physics in the stock BSPs; dropped weapon forms have their own classes.
+    if(ModelEquals(model,"models/w_models/weapons/w_cola.mdl"))return Label::Cola;
+    if(ModelEquals(model,"models/props_junk/gnome.mdl"))return Label::Gnome;
     return Label::None;
 }
 inline bool PhysicsClass(const char* name){
@@ -84,8 +97,14 @@ inline bool PhysicsClass(const char* name){
            Same(name,"CFireworkCrate");
 }
 inline bool LaserModel(const char* name){
-    const char* expected="models/w_models/weapons/w_laser_sights.mdl";
-    for(unsigned i=0;;++i){char c=name[i];if(c>='A'&&c<='Z')c+=32;if(c=='\\')c='/';if(c!=expected[i])return false;if(!c)return true;}
+    return ModelEquals(name,"models/w_models/weapons/w_laser_sights.mdl");
+}
+inline Label UpgradeModel(const char* model){
+    // Placed ammo and laser boxes share CBaseUpgradeItem on the client.
+    if(LaserModel(model))return Label::Laser;
+    if(ModelEquals(model,"models/props/terror/exploding_ammo.mdl"))return Label::ExplosiveAmmo;
+    if(ModelEquals(model,"models/props/terror/incendiary_ammo.mdl"))return Label::IncendiaryAmmo;
+    return Label::None;
 }
 // Stock networked model indices only; Skeeto does not provide L4N's custom-model lookup.
 inline bool ValidModel(int index){return index>0&&index<=32767;}

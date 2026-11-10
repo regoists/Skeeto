@@ -172,10 +172,16 @@ def check_legacy_bridge(root: Path, scratch: Path, source: Path, current_version
         for relative in ("left4dead2.exe", "bin/engine.dll", "left4dead2_skeeto.exe"):
             (target / relative).write_bytes(b"legacy fixture")
         shutil.copyfile(source / "skeeto.dll", target / "skeeto.dll")
-        installed = (target / "skeeto.dll").read_bytes()
-        match = re.search(br"SkeetoInstalledSemver=(\d+\.\d+\.\d+)", installed)
-        assert match and len(match.group(1)) == len(b"1.7.4")
-        (target / "skeeto.dll").write_bytes(installed.replace(b"SkeetoInstalledSemver=" + match.group(1), b"SkeetoInstalledSemver=1.7.4", 1))
+        installed = bytearray((target / "skeeto.dll").read_bytes())
+        match = re.search(br"SkeetoInstalledSemver=\d+\.\d+\.\d+", installed)
+        assert match, "installed core missing SkeetoInstalledSemver marker"
+        field = match.end() - match.start()
+        replacement = b"SkeetoInstalledSemver=1.7.4"
+        assert len(replacement) <= field, (replacement, field)
+        if len(replacement) < field:
+            replacement = replacement + (b"\0" * (field - len(replacement)))
+        installed[match.start():match.end()] = replacement
+        (target / "skeeto.dll").write_bytes(installed)
         (target / "VERSION.txt").write_text("Skeeto 1.7.4\nsemver=1.7.4\n", encoding="ascii")
         if alias:
             shutil.copyfile(target / "skeeto.dll", target / "necola.dll")

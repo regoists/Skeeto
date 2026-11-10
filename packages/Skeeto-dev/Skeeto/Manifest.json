@@ -4,27 +4,27 @@
   "update_protocol": 1,
   "requires_manual_migrate": false,
   "install_layout": 2,
-  "semver": "2.2.15",
+  "semver": "2.2.16",
   "files": [
     {
       "relative": "skeeto.dll",
       "role": "core",
-      "hash": "3b092ad5d60385ccba93a6748c20d6086ae23f38a94b0d5e4b7523676d502fbb"
+      "hash": "d72dfe44c36fc266f2a90c437c7068266462815a22c132412aa7d47e2cba8174"
     },
     {
       "relative": "bin\\wininet.dll",
       "role": "proxy",
-      "hash": "d0212497e984f778c46c4eca6b7865c9c6b3231256320111b348acfc70348134"
+      "hash": "7cffd2d6ee055a24f6cd9486dab2dd96ef16177ec18d7ccd1ccfbc28428dc643"
     },
     {
       "relative": "VERSION.txt",
       "role": "marker",
-      "hash": "f6d14377df23019eacff2233eae74a8b80f3e16d20f20058c47fbe9f2223cbe6"
+      "hash": "dd9079a6b285bdf31adb28794e0e12109fa78537e1fb6ba0c54eaf99aef7425b"
     },
     {
       "relative": "SKEETO_WORKSHOP.txt",
       "role": "marker",
-      "hash": "a56733a770e77a83910684490acc25bacb488b34a04f7e0d043ba3af82ea75aa"
+      "hash": "ac98259959808c1fd9d0a0307a7f96c337e6b373f4dbd1a438de9b309f8b53bf"
     },
     {
       "relative": "skeeto_apply_update.bat",
@@ -39,7 +39,7 @@
     {
       "relative": "Skeeto\\Maintain.ps1",
       "role": "tool",
-      "hash": "ccee7a8b45d66fad92aa790cc85089c4f7ae5109e8b440db9ac2f003ef9708be"
+      "hash": "54ca905e9abb86f9ae6777c1473511e053dbd12daa3fd507ed07ea9e8b75cb92"
     },
     {
       "relative": "Skeeto\\README.txt",

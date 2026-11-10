@@ -30,6 +30,7 @@ static_assert(options::LabelCount==unsigned(skeeto_nav::kRadarLabelCount)&&optio
 #include "b4b_hud_layout.h"
 #include "classic_hud_style.h"
 #include "classic_hud_artwork.h"
+#include "special_supply_artwork.h"
 #include "direction_arrow_artwork.h"
 #include "classic_text_alignment.h"
 #include "hud_numeric_alignment.h"
@@ -229,13 +230,23 @@ static int CachedPanelTexture(int w,int h){
     --uploadsLeft;L4N_OBSERVE(++textureUploads);entry.width=tw;entry.height=th;
     return entry.texture;
 }
+static classic_hud_artwork::Meta ArtworkMeta(unsigned id){
+    return items::IsSpecial(id)?special_supply_artwork::meta[id-items::SpecialFirst]:classic_hud_artwork::meta[id];
+}
+static const unsigned char* ArtworkPixels(unsigned id){
+    return items::IsSpecial(id)?special_supply_artwork::rgba[id-items::SpecialFirst]:pixels+id*classic_hud_artwork::Stride;
+}
 static void Icon(unsigned label,int x,int y,int w,int h,int red=255,int green=255,int blue=255,int alpha=255){
-    if(!pixels||label>=ArrowTexture||w<1||h<1)return;
-    bool panel=label>=IconCount;unsigned art=panel?0:label;auto m=classic_hud_artwork::meta[art];
-    int texture=panel?CachedPanelTexture(w,h):CachedTexture(label,pixels+art*classic_hud_artwork::Stride,m.sourceWidth,m.sourceHeight,w,h);if(!texture)return;
+    if(label>=ArrowTexture||w<1||h<1)return;
+    bool panel=label>=IconCount;unsigned art=panel?0:label;
+    if((panel||!items::IsSpecial(art))&&!pixels)return;
+    auto m=ArtworkMeta(art);
+    const unsigned char* source=panel?pixels:ArtworkPixels(art);
+    if(!source)return;
+    int texture=panel?CachedPanelTexture(w,h):CachedTexture(label,source,m.sourceWidth,m.sourceHeight,w,h);if(!texture)return;
     Color(red,green,blue,alpha);VCall<void(__thiscall*)(void*,int)>(surface,29)(surface,texture);VCall<void(__thiscall*)(void*,int,int,int,int)>(surface,31)(surface,x,y,x+w,y+h);
 }
-static_assert(classic_hud_artwork::Count==IconCount,"Classic HUD artwork mapping mismatch");
+static_assert(classic_hud_artwork::Count==items::SpecialFirst&&special_supply_artwork::Count==items::SpecialCount,"HUD artwork mapping mismatch");
 static void DirectionArrow(layout::Box card,float unit,const direction_math::Result& result,classic_hud_artwork::Meta color){
     if(!directionSurfaceReady||!result.horizontal)return;
     SurfaceVertex vertices[4];if(!rectangular_hud::ArrowQuad(card,b4b_hud::ArrowGap*unit,classic_hud::ArrowHalf*unit,result,vertices))return;
@@ -246,7 +257,7 @@ static void DirectionArrow(layout::Box card,float unit,const direction_math::Res
 
 // ---- text ---------------------------------------------------------------------------------------
 static const WCHAR* ItemName(unsigned id){
-    static const UiTextList<35> names{{
+    static const UiTextList<39> names{{
         {UiId::RadarItem10,L"未知武器"}, // index 0 is never shown
         {UiId::RadarItem1,L"医疗包"},
         {UiId::RadarItem2,L"电击器"},
@@ -282,7 +293,11 @@ static const WCHAR* ItemName(unsigned id){
         {UiId::RadarItem32,L"油桶"},
         {UiId::RadarItem33,L"烟花盒"},
         {UiId::RadarItem34,L"终点安全屋"},
-    }};return id<35?names[id]:L"";
+        {UiId::RadarItem35,L"可乐"},
+        {UiId::RadarItem36,L"侏儒"},
+        {UiId::RadarItem37,L"高爆弹"},
+        {UiId::RadarItem38,L"燃烧弹"},
+    }};return id<39?names[id]:L"";
 }
 static const char* DigitFamily(){static const char* names[]={"L4N_Radar_Digits","20HUD_Kudo","20HUD_MeowMoe"};return names[options::DigitStyle()];}
 static void UseFont(int pixels,bool ui=false,bool radarNumber=false){
@@ -298,7 +313,7 @@ static void UseFont(int pixels,bool ui=false,bool radarNumber=false){
     }
     font=handle;
 }
-static const unsigned hudOrder[]={26,27,15,16,28,11,12,19,29,14,13,17,18,20,21,24,25,1,2,3,4,5,6,7,8,9,32,33,34};
+static const unsigned hudOrder[]={26,27,15,16,28,11,12,19,29,14,13,17,18,20,21,24,25,1,2,3,4,5,6,7,8,9,32,33,34,35,36,37,38};
 struct TextExtent {int w=0,h=0;};
 struct TextMetric {unsigned font=0,length=0;WCHAR text[16]{};TextExtent size;};
 static TextMetric textMetrics[128];
@@ -435,7 +450,7 @@ static unsigned DisplayKey(unsigned id){
 static int DisplayDistance(unsigned id,Vec& point,unsigned now){
     point=rows[id].point;return displayedDistances[id].Update(Distance(viewOrigin,point)/39.3701f,DisplayKey(id),now);
 }
-// One Paint-thread frame: bounded by the 35 fixed items; all expensive text
+// One Paint-thread frame: bounded by the fixed item labels; all expensive text
 // work is cached in rowTextCaches and rebuilt only when a value changes.
 static void DrawCards(){
     int w=0,h=0;VCall<void(__thiscall*)(void*,int&,int&)>(engine,5)(engine,w,h);if(w<640||h<400||w>16384||h>16384)return;
@@ -453,9 +468,9 @@ static void DrawCards(){
     if(++renderFrame==0){renderFrame=1;for(auto& entry:panelTextures)entry.used=entry.checked=0;}
     frameArrowPrepared=false;frameArrowTexture=0;renderStateActive=true;uploadsLeft=3;
     unsigned now=GetTickCount();
-    struct PreparedRow {bool visible=false;layout::Box box;int mx=0,my=0,countWidth=0,iconWidth=0,iconHeight=0,group=0,column=0,row=0;float sy=0,unit=0;direction_math::Result direction{};};
+    struct PreparedRow {bool visible=false;layout::Box box;int mx=0,my=0,iconLane=0,iconWidth=0,iconHeight=0,group=0,column=0,row=0;float sy=0,unit=0;direction_math::Result direction{};};
     PreparedRow prepared[IconCount]{};
-    int columnExtra[2][3]{},rowExtra[2][18]{};
+    int columnExtra[2][b4b_hud::SmallColumns]{},rowExtra[2][18]{};
     for(unsigned id:hudOrder){
         if(!DisplayItem(id)){displayedDistances[id]={};directionStates[id].Reset();layout::visualBoxes[id]={};layout::panelBoxes[id]={};continue;}
         auto automatic=b4b_hud::Cell(id,h,s);if(!automatic.w||!automatic.h)continue;
@@ -470,7 +485,12 @@ static void DrawCards(){
         int baseIconWidth=0,baseIconHeight=0;classic_hud::IconSize(id,sx,sy,baseIconWidth,baseIconHeight);
         // Resolve the final aspect fit before centring, avoiding two separate
         // integer roundings that moved small icons up and left by one pixel.
-        if(id!=9){auto art=classic_hud_artwork::meta[id];if(unsigned(art.sourceWidth)*unsigned(baseIconHeight)>unsigned(art.sourceHeight)*unsigned(baseIconWidth))baseIconHeight=Limit(int(unsigned(baseIconWidth)*art.sourceHeight/art.sourceWidth),1,baseIconHeight);else baseIconWidth=Limit(int(unsigned(baseIconHeight)*art.sourceWidth/art.sourceHeight),1,baseIconWidth);}
+        if(id!=9){auto art=ArtworkMeta(id);if(unsigned(art.sourceWidth)*unsigned(baseIconHeight)>unsigned(art.sourceHeight)*unsigned(baseIconWidth))baseIconHeight=Limit(int(unsigned(baseIconWidth)*art.sourceHeight/art.sourceWidth),1,baseIconHeight);else baseIconWidth=Limit(int(unsigned(baseIconHeight)*art.sourceWidth/art.sourceHeight),1,baseIconWidth);}
+        int iconLane=0;
+        if(items::IsSpecial(id)){
+            iconLane=int(b4b_hud::SpecialIconLane*sx+.5f);
+            if(iconLane<baseIconWidth+2)iconLane=baseIconWidth+2;
+        }
         Vec point{};if(!displayedDistances[id].valid)directionStates[id].Reset();
         int meters=layout::active?0:DisplayDistance(id,point,now);
         auto result=layout::active?direction_math::Result{0,-1,true,1}:directionStates[id].Update(directionBasis,viewOrigin,point,DisplayKey(id));
@@ -478,10 +498,11 @@ static void DrawCards(){
         auto& words=PrepareRowText(id,meters,DisplayCount(rows[id]),!layout::active&&rows[id].unlimited,result.height,high,card.w,card.h,countWidth,heightWidth,Limit(int(classic_hud::DistanceFont*sy+.5f),7,42),Limit(int(4.5f*sy+.5f),7,18));
         // Extremely small custom cells have a readable minimum. Expand the
         // complete cell (including arrow padding), then keep it on screen.
-        box.w+=words.cardWidth-card.w;box.h+=words.cardHeight-card.h;
-        if(box.w<words.cardWidth+2*mx)box.w=words.cardWidth+2*mx;
+        int panelWidth=words.cardWidth+iconLane;
+        box.w+=panelWidth-card.w;box.h+=words.cardHeight-card.h;
+        if(box.w<panelWidth+2*mx)box.w=panelWidth+2*mx;
         if(box.h<words.cardHeight+2*my)box.h=words.cardHeight+2*my;
-        auto& item=prepared[id];item.visible=true;item.box=box;item.mx=mx;item.my=my;item.countWidth=countWidth;item.iconWidth=baseIconWidth;item.iconHeight=baseIconHeight;item.sy=sy;item.unit=unit;item.direction=result;
+        auto& item=prepared[id];item.visible=true;item.box=box;item.mx=mx;item.my=my;item.iconLane=iconLane;item.iconWidth=baseIconWidth;item.iconHeight=baseIconHeight;item.sy=sy;item.unit=unit;item.direction=result;
         b4b_hud::GridPosition(id,item.group,item.column,item.row);
         if(!layout::items[id].custom){
             int extra=box.w-automatic.w;if(extra>columnExtra[item.group][item.column])columnExtra[item.group][item.column]=extra;
@@ -500,15 +521,17 @@ static void DrawCards(){
             else{for(int r=0;r<item.row;++r)box.y+=rowExtra[0][r];}
         }
         box.x=Limit(box.x,4,w-box.w-4);box.y=Limit(box.y,2,h-box.h-4);
-        layout::Box card{box.x+item.mx,box.y+item.my,words.cardWidth,words.cardHeight};layout::boxes[id]=box;
-        auto palette=classic_hud_artwork::meta[id];
+        layout::Box card{box.x+item.mx,box.y+item.my,words.cardWidth+item.iconLane,words.cardHeight};layout::boxes[id]=box;
+        auto palette=ArtworkMeta(id);
         Icon(id+IconCount,card.x,card.y,card.w,card.h);
         // The icon keeps its size as text values change. A wider exceptional
         // string reallocates text lanes without re-uploading the icon.
-        Icon(id,card.x+(card.w-item.iconWidth)/2,card.y+(card.h-item.iconHeight)/2,item.iconWidth,item.iconHeight);
-        int textX=card.x+words.drawCountWidth,textWidth=card.w-words.drawCountWidth-words.drawHeightWidth;
+        int iconWidth=item.iconLane?item.iconLane:card.w;
+        Icon(id,card.x+(iconWidth-item.iconWidth)/2,card.y+(card.h-item.iconHeight)/2,item.iconWidth,item.iconHeight);
+        int textOrigin=card.x+item.iconLane;
+        int textX=textOrigin+words.drawCountWidth,textWidth=words.cardWidth-words.drawCountWidth-words.drawHeightWidth;
         DrawCenteredText({textX,card.y,textWidth,card.h},words.distance,classic_hud::DistanceRed,classic_hud::DistanceGreen,classic_hud::DistanceBlue,(id==1||id==3)?1:0,id==1?1:id==34?int(3.2f*item.unit+.5f):0);
-        if(words.showCount)DrawCenteredText({card.x,card.y,words.drawCountWidth,card.h},words.quantity,classic_hud::SideRed,classic_hud::SideGreen,classic_hud::SideBlue);
+        if(words.showCount)DrawCenteredText({textOrigin,card.y,words.drawCountWidth,card.h},words.quantity,classic_hud::SideRed,classic_hud::SideGreen,classic_hud::SideBlue);
         if(words.showHeight)DrawCenteredText({card.x+card.w-words.drawHeightWidth,card.y,words.drawHeightWidth,card.h},words.elevation,classic_hud::SideRed,classic_hud::SideGreen,classic_hud::SideBlue);
         if(options::values[options::Direction])DirectionArrow(card,item.unit,item.direction,palette);
         layout::visualBoxes[id]=box;
@@ -551,7 +574,7 @@ static void UnloadFonts(){hud_digit_font::Unload();hud_numeric_font::Unload();hu
 // Decodes about 64 KiB of RGBA per call (one run may exceed that by its own length),
 // so artwork never costs a frame. The image is published only when complete.
 static void ArtworkStep(){
-    if(pixels||artFailed)return;constexpr unsigned size=IconCount*classic_hud_artwork::Stride;
+    if(pixels||artFailed)return;constexpr unsigned size=classic_hud_artwork::Count*classic_hud_artwork::Stride;
     if(!decoding){
         if(sizeof classic_hud_artwork::packed%6){artFailed=true;return;}
         decoding=(unsigned char*)HeapAlloc(GetProcessHeap(),0,size);if(!decoding){artFailed=true;return;}
@@ -672,7 +695,7 @@ static bool ExternalIconSize(unsigned label,int screenW,int screenH,float hudSca
     if(wide<1||tall<1)return false;
     // Same aspect resolve the radar applies before Icon().
     if(label!=9){
-        auto art=classic_hud_artwork::meta[label];
+        auto art=ArtworkMeta(label);
         if(art.sourceWidth>0&&art.sourceHeight>0){
             if(unsigned(art.sourceWidth)*unsigned(tall)>unsigned(art.sourceHeight)*unsigned(wide))
                 tall=Limit(int(unsigned(wide)*art.sourceHeight/art.sourceWidth),1,tall);
@@ -683,8 +706,10 @@ static bool ExternalIconSize(unsigned label,int screenW,int screenH,float hudSca
     outW=wide;outH=tall;return true;
 }
 static int CachedExternalTexture(unsigned label,int w,int h){
-    if(!pixels||label==0||label>=IconCount||w<1||h<1)return 0;
-    auto m=classic_hud_artwork::meta[label];
+    if(label==0||label>=IconCount||w<1||h<1)return 0;
+    if(!items::IsSpecial(label)&&!pixels)return 0;
+    auto m=ArtworkMeta(label);
+    const unsigned char* source=ArtworkPixels(label);if(!source)return 0;
     int& t=externalTextures[label];
     bool valid=t!=0&&TextureLive(t);
     if(!valid){t=0;externalWidths[label]=externalHeights[label]=0;}
@@ -693,15 +718,17 @@ static int CachedExternalTexture(unsigned label,int w,int h){
     int tw=Limit(w,1,512),th=Limit(h,1,256);
     t=VCall<int(__thiscall*)(void*,bool)>(surface,34)(surface,true);
     if(!t)return 0;
-    if(!raster_filter::Resize(pixels+label*classic_hud_artwork::Stride,m.sourceWidth,m.sourceHeight,resizedPixels,tw,th)){ReleaseTexture(t);return 0;}
+    if(!raster_filter::Resize(source,m.sourceWidth,m.sourceHeight,resizedPixels,tw,th)){ReleaseTexture(t);return 0;}
     if(!SkeetoNavUploadRgba(t,resizedPixels,tw,th)){ReleaseTexture(t);return 0;}
     --uploadsLeft;L4N_OBSERVE(++textureUploads);externalWidths[label]=tw;externalHeights[label]=th;
     return t;
 }
 static bool DrawExternalIcon(unsigned label,int x,int y,int w,int h){
     if(!surface||label==0||label>=IconCount||w<1||h<1)return false;
-    for(int step=0;step<40&&!pixels&&!artFailed;++step)ArtworkStep();
-    if(!pixels)return false;
+    if(!items::IsSpecial(label)){
+        for(int step=0;step<40&&!pixels&&!artFailed;++step)ArtworkStep();
+        if(!pixels)return false;
+    }
     if(!uploadsLeft)uploadsLeft=4;
     // First upload size is sticky; draw stretches. Scale edits must not reupload.
     int texture=CachedExternalTexture(label,w,h);

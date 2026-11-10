@@ -1,5 +1,5 @@
-Skeeto 2.2.15
-released=2026-11-08
-semver=2.2.15
+Skeeto 2.2.16
+released=2026-11-10
+semver=2.2.16
 module=steam-bootstrap-transactional-update
-note=NetGraph full detail, CrashGuard menu spacing, CS2 kill feed, Tank punch-predict world HUD
+note=Auto-update defer/occupancy honesty, supply radar cola/gnome/ammo packs, Tab bind fix, world HUD 16 slots

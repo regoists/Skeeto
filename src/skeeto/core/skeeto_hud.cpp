@@ -1636,7 +1636,7 @@ int TeamHudWepMatList(int k, const char** out, int maxOut) {
 	case TW_Molly: a = "vgui/hud/icon_molotov"; b = "vgui/hud/icon_molotov_small"; break;
 	case TW_Pipe: a = "vgui/hud/icon_pipebomb"; b = "vgui/hud/icon_pipe_bomb"; break;
 	case TW_Bile: a = "vgui/hud/icon_vomitjar"; b = "vgui/hud/icon_bile"; break;
-	case TW_Kit: a = "vgui/hud/icon_first_aid"; b = "vgui/hud/icon_medkit"; break;
+	case TW_Kit: a = "vgui/hud/icon_first_aid_kit"; b = "vgui/hud/icon_first_aid"; c = "vgui/hud/icon_medkit"; break;
 	case TW_Defib: a = "vgui/hud/icon_defibrillator"; b = "vgui/hud/icon_defib"; break;
 	case TW_Exp: a = "vgui/hud/icon_upgradepack_explosive"; break;
 	case TW_Inc: a = "vgui/hud/icon_upgradepack_incendiary"; break;
@@ -1714,8 +1714,8 @@ bool TeamHudSpriteFor(int kind, const char* meleeStem, int pistolClipHint, TeamH
 	case TW_Molly: *out = { "vgui/hud/iconsheet", 192, 256, 64, 64 }; return true;
 	case TW_Pipe: *out = { "vgui/hud/iconsheet", 128, 256, 64, 64 }; return true;
 	case TW_Bile: return false;
-	// weapon_first_aid_kit.txt TextureData "weapon": iconsheet 128,320 64x64.
-	// icon_medkit.vmt is a different UI texture and is not this slot icon.
+	// Current weapon script uses vgui/hud/icon_first_aid_kit (64x64). The older
+	// base script used iconsheet 128,320; icon_medkit is a different UI texture.
 	case TW_Kit: *out = { "vgui/hud/iconsheet", 128, 320, 64, 64 }; return true;
 	case TW_Defib: *out = { "vgui/hud/iconsheet2", 192, 256, 64, 64 }; return true;
 	case TW_Exp: *out = { "vgui/hud/iconsheet2", 448, 128, 64, 64 }; return true;
@@ -1908,8 +1908,6 @@ void TeamHudDrawPrimaryIcon(int x, int y, int w, int h, int kind) {
 void TeamHudDrawWepIconLetterbox(int x, int y, int w, int h, int kind, const char* meleeStem) {
 	TeamHudSprite sp{};
 	const bool haveSp = TeamHudSpriteFor(kind, meleeStem, -1, &sp);
-	if (kind == TW_Kit && haveSp && TeamHudBlitSpriteVanilla(x, y, w, h, sp))
-		return;
 
 	const char* mats[8]{};
 	char meleeMat[80]{};
@@ -1930,7 +1928,13 @@ void TeamHudDrawWepIconLetterbox(int x, int y, int w, int h, int kind, const cha
 				return;
 			continue;
 		}
-		if (TeamHudBlitIconContain(x, y, w, h, id, 0.f, 0.f, 1.f, 1.f, (float)tw / (float)th))
+		float s1 = 1.f;
+		float ar = (float)tw / (float)th;
+		if (TeamHudIsItemKind(kind)) {
+			s1 = TeamHudSafeUvWidth(kind, tw, th);
+			if (s1 > 0.05f) ar = (s1 * (float)tw) / (float)th;
+		}
+		if (TeamHudBlitIconContain(x, y, w, h, id, 0.f, 0.f, s1, 1.f, ar))
 			return;
 	}
 
@@ -1948,8 +1952,6 @@ void TeamHudDrawWepIconLetterbox(int x, int y, int w, int h, int kind, const cha
 void TeamHudDrawIconEx(int x, int y, int w, int h, int kind, const char* meleeStem, int pistolClipHint, bool vanillaOnly) {
 	TeamHudSprite sp{};
 	const bool haveSp = TeamHudSpriteFor(kind, meleeStem, pistolClipHint, &sp);
-	if (kind == TW_Kit && haveSp && TeamHudBlitSpriteVanilla(x, y, w, h, sp))
-		return;
 
 	if (vanillaOnly) {
 		if (haveSp && TeamHudBlitSpriteVanilla(x, y, w, h, sp))

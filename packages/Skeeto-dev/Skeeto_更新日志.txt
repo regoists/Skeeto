@@ -15,6 +15,30 @@ Then extract all contents of the new package into the game's root directory. If 
 
 项目开源链接：https://github.com/regoists/Skeeto
 
+## 2.2.16（2026-11-10）
+	Skeeto核心：
+新增：
+- 物资雷达 / 物资扫描新增可乐、侏儒、高爆弹药包、燃烧弹药包。
+- 世界 HUD 无条件显示队友名牌 / ID 槽位扩到最多 16。
+修改：
+- 自动更新：安静等待超时、退出后进程未净、备份槽暂未清理改为「延期」——保留暂存与 READY，不再写成失败收据；关键 DLL 仍被占用时记 OCCUPANCY 并保留暂存，失败弹窗展示收据短码。
+修复：
+- TAB 计分面板设置页 [8]/[9] 一键绑定 TAB 无效的问题。
+- TAB 计分面板闲置人数与旁观计数对不上的问题（优先用 PlayerResource；已挂在 BOT 行上的闲置人类不再计入旁观）。
+- 旁观时近战击杀在击杀列表里可能缺失图标的问题。
+- 医疗包 HUD 图标可跟随模组材质（优先 icon_first_aid_kit，不再被原版 iconsheet 提前截断）。
+	Skeeto Core:
+Added:
+- Item radar / item scan adds cola, gnome, explosive ammo pack, incendiary ammo pack.
+- World HUD unconditionally shows teammate nameplates / ID slots expanded to a maximum of 16.
+Changed:
+- Auto-update: quiet wait timeout, process not cleaned up after exit, backup slot not yet cleaned are changed to "deferred" — retain staging and READY, no longer written as a failure receipt; when critical DLLs are still occupied, record OCCUPANCY and retain staging, failure popup shows the receipt short code.
+Fixed:
+- The issue where one-key binding TAB in the [8]/[9] settings page of the TAB scoreboard is ineffective.
+- The issue where idle count and spectator count in the TAB scoreboard do not match (prefer PlayerResource; idle humans already attached to BOT rows are no longer counted as spectators).
+- The issue where melee kills may be missing icons in the kill feed while spectating.
+- Medkit HUD icon can follow mod materials (prefer icon_first_aid_kit, no longer truncated early by the vanilla iconsheet).
+
 ## 2.2.15（2026-11-08）
 	Skeeto核心：
 新增：

@@ -518,7 +518,7 @@ def build():
     radar_source=(CORE/'skeeto_navigation/supply_radar/runtime.h').read_text(encoding='utf-8-sig')
     # The real UiTextList is ordered by item label.
     radar_names=re.findall(r'\{UiId::(RadarItem\w+),\s*('+LITERAL+r')\}',body(radar_source,r'^static const WCHAR\* ItemName[^\n]*\{'))
-    if len(radar_names)!=35:raise ValueError('Radar item labels changed; review filter adapter')
+    if len(radar_names)!=39:raise ValueError('Radar item labels changed; review filter adapter')
     for label,(ident,text) in enumerate(radar_names[1:],1):
         sub,row=divmod(label-1,9)
         add(number('kMenuPageSupplyRadarItems'),sub,row+1,ident,wide(text),primary=True)
