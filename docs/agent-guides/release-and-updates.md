@@ -65,7 +65,6 @@ The repository tracks `docs/START_HERE.txt` and `docs/agent-guides/` only. Other
 
 Repository Skills live in `.agents/skills/`. An authorized commit should include the Skills, assets, scripts, and packaging files this task changed. Check that directory explicitly; `git commit -a` is not enough. Leave unrelated dirty work alone. Do not commit caches, user configs, `.codex/handoffs/`, `src/skeeto/build.local.bat`, machine-absolute paths, or accidental `archive/` / unrelated large `assets/` files.
 
-Version-named commits (`Skeeto X.Y.Z`) include `src/`, `packages/`, and root `VERSION.txt` only. Other paths are committed separately with a short descriptive message.
 Do not commit or push unless the user asked, or the user asked for a release and the flow above succeeded. Before claiming either is done, check `git status`. Feature-branch release commits merge into the designated release branch before push; do not push unfinished work to `main`.
 
 Before an authorized commit or formal release, review affected behavior with `.agents/skills/skeeto-code-review/SKILL.md`. For memory access, Hooks, or query registration, run `python tools/check_memory_probes.py`. Prefer a reviewer who did not implement the change. Pure-doc commits do not need product tests.
