@@ -2,7 +2,7 @@
 
 // All calls are from Skeeto's existing game/Paint thread. No L4N runtime is used.
 namespace skeeto_nav {
-constexpr int kSettingCount = 51;
+constexpr int kSettingCount = 52;
 // Supply radar option set: [0,15) general, [15,54) per-label enable,
 // [54,210) per-label layout (custom,x,y,scale). Mirrors supplyradar::options (static_assert in runtime).
 constexpr int kRadarLabelCount = 39;

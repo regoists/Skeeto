@@ -1,5 +1,5 @@
-Skeeto 2.2.16
-released=2026-11-10
-semver=2.2.16
+Skeeto 2.2.17
+released=2026-11-12
+semver=2.2.17
 module=steam-bootstrap-transactional-update
-note=Auto-update defer/occupancy honesty, supply radar cola/gnome/ammo packs, Tab bind fix, world HUD 16 slots
+note=Steam avatar prefetch, NetGraph full-mode ticks, nav world HUD toggle, minimap 60/120/follow, L4N portraits

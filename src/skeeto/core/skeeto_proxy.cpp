@@ -22116,11 +22116,10 @@ static void NetGraphHudPaint() {
 	const int fpsW = SurfTextWFont(mainFont, left);
 	const int pingW = SurfTextWFont(mainFont, pingText);
 	int measureLeft = fpsW;
-	if (!full) {
-		swprintf_s(left, 96, L"SV Tick  %.1f", inP);
-		const int tickW = SurfTextWFont(mainFont, left);
-		if (tickW > measureLeft) measureLeft = tickW;
-	} else {
+	swprintf_s(left, 96, L"SV Tick  %.1f", inP);
+	const int tickW = SurfTextWFont(mainFont, left);
+	if (tickW > measureLeft) measureLeft = tickW;
+	if (full) {
 		swprintf_s(left, 96, L"IN  %.1f k/s", inK);
 		const int inW = SurfTextWFont(mainFont, left);
 		if (inW > measureLeft) measureLeft = inW;
@@ -22133,7 +22132,7 @@ static void NetGraphHudPaint() {
 	const int lossW = SurfTextWFont(mainFont, left);
 	if (lossW > measureLeft) measureLeft = lossW;
 	const int panelW = HudScalePx(full ? 340 : 315, sc);
-	const int rows = full ? 4 : 3;
+	const int rows = full ? 5 : 3;
 	const int panelH = pad * 2 + rowH * rows;
 	int x = 0, y = 0;
 	HudFinalizePos(&g_netGraphHudAbs, &g_netGraphHudOffX, &g_netGraphHudOffY,
@@ -22160,13 +22159,12 @@ static void NetGraphHudPaint() {
 	SurfTextAt(mainFont, lerpX, ty, RGB(215, 220, 230), lerpText);
 	ty += rowH;
 	const int rightX = rightColX;
-	if (!full) {
-		swprintf_s(left, 96, L"SV Tick  %.1f", inP);
-		swprintf_s(right, 96, L"CL Tick  %.1f", outP);
-		SurfTextAt(mainFont, leftX, ty, RGB(166, 222, 255), left);
-		SurfTextAt(mainFont, rightX, ty, RGB(255, 205, 126), right);
-		ty += rowH;
-	} else {
+	swprintf_s(left, 96, L"SV Tick  %.1f", inP);
+	swprintf_s(right, 96, L"CL Tick  %.1f", outP);
+	SurfTextAt(mainFont, leftX, ty, RGB(166, 222, 255), left);
+	SurfTextAt(mainFont, rightX, ty, RGB(255, 205, 126), right);
+	ty += rowH;
+	if (full) {
 		swprintf_s(left, 96, L"IN  %.1f k/s", inK);
 		swprintf_s(right, 96, L"OUT  %.1f k/s", outK);
 		SurfTextAt(mainFont, leftX, ty, RGB(166, 222, 255), left);
@@ -25842,6 +25840,7 @@ static const UiTextEntry kNavUiLabels[] = {
 	{UiId::NavLabel48, L"路线 HUD 横向位置"},
 	{UiId::NavLabel49, L"路线 HUD 纵向位置"},
 	{UiId::NavLabel50, L"小地图形状"},
+	{UiId::NavLabel51, L"路线导航 HUD"},
 };
 static_assert(sizeof(kNavUiLabels)/sizeof(kNavUiLabels[0]) == skeeto_nav::kSettingCount, "navigation menu labels");
 struct NavCategoryItem {
@@ -25872,6 +25871,7 @@ static constexpr int kNavRefreshSetting = 45;
 static constexpr int kNavStyleSetting = 46;
 static constexpr int kNavShapeSetting = 50;
 static constexpr int kNavArrowColorSetting = 47;
+static constexpr int kNavWorldHudSetting = 51;
 static int g_navMenuSel = 0;
 static const wchar_t* NavArrowColorName(int value) {
 	static const UiTextEntry names[] = {
@@ -25910,6 +25910,7 @@ static int NavMenuSettingIndexForRow(int page, int sub, int row) {
 		if (row == 1) return 9;
 		if (row == 2) return 44;
 		if (row == 4) return kNavArrowColorSetting;
+		if (row == 5) return kNavWorldHudSetting;
 		return -1;
 	case kMenuPageNavSupplies: {
 		const int index = kNavSuppliesFirstSetting + sub * kMenuItemsPerPage + row;
@@ -25924,7 +25925,7 @@ static int NavMenuSettingIndexForRow(int page, int sub, int row) {
 }
 static int NavMenuPageRows(int page, int sub) {
 	if (page == kMenuPageNavDisplay) { const int remaining = kNavDisplayItemCount - sub * kMenuItemsPerPage; return remaining > 0 ? (remaining < kMenuItemsPerPage ? remaining : kMenuItemsPerPage) : 0; }
-	if (page == kMenuPageNavRoute) return 6;
+	if (page == kMenuPageNavRoute) return 7;
 	const int pageCount = NavMenuPageCount(page);
 	if (sub < 0 || sub >= pageCount) return 0;
 	const int first = page == kMenuPageNavSupplies ? kNavSuppliesFirstSetting
@@ -26349,7 +26350,7 @@ static constexpr CustomHudMenuItem kCustomHudMenu[] = {
 	{UiId::Text_cc5a1b0a, L"坦克 / 尸潮出现提示", UiId::Text_b3a5e68e, L"    坦克或 Director/Panic 尸潮事件出现时弹出约 2 秒，可单独开关并共用位置", CustomHudMenuAction::OpenSettings, 33, false},
 	{UiId::Text_bbaf86d0, L"特感连杀 HUD", UiId::Text_d143b572, L"    默认 8 秒内连续击杀特感；第 3 杀起弹出约 2 秒并显示当前连杀数", CustomHudMenuAction::OpenSettings, 36, false},
 	{UiId::Text_cd5441a1, L"网络参数 HUD", UiId::NetGraphHudHint,
-		L"    显示 FPS、Ping、Loss、Choke、Lerp；完整模式另含 IN/OUT、SV（服务器帧率）、VAR（抖动 msec）。",
+		L"    显示 FPS、Ping、Loss、Choke、Lerp、SV Tick / CL Tick；完整模式另含 IN/OUT、SV（服务器帧率）、VAR（抖动 msec）。",
 		CustomHudMenuAction::OpenSettings, kMenuPageNetGraphHud, false},
 	{UiId::Text_b7484dd9, L"内存显示 HUD", UiId::Text_21274482, L"    显示游戏缓存用量、剩余虚拟地址空间和当前客户端实体数", CustomHudMenuAction::OpenSettings, kMenuPageMemoryHud, false},
 	{UiId::Text_2c861b8b, L"简洁版导演 HUD", UiId::Text_19647cf2, L"    阶段名与原版导演 HUD 相同；转阶段弹出或常驻，可在子页切换", CustomHudMenuAction::OpenSettings, kMenuPageDirectorPhaseHud, false},
@@ -29780,9 +29781,14 @@ static void MenuPaintEngine() {
 							swprintf_s(buf, 192, L"[%d] %s %s", row + 1, name, onoff(value != 0));
 						else if (index == 9 && value == 0)
 							swprintf_s(buf, 192, UiText(UiId::NavAdjustAutoRow, L"[%d] %s [%s]  - / + 调节"), row + 1, name, UiText(UiId::LanguageAuto, L"自动"));
-						else if (index == kNavRefreshSetting)
-							swprintf_s(buf, 192, UiText(UiId::NavRefreshRow,
-								L"[%d] %s [%d]  - / + 调节"), row + 1, name, value);
+						else if (index == kNavRefreshSetting) {
+							if (value >= skeeto_nav::Maximum(kNavRefreshSetting))
+								swprintf_s(buf, 192, UiText(UiId::NavAdjustAutoRow, L"[%d] %s [%s]  - / + 调节"),
+									row + 1, name, UiText(UiId::NavRefreshFollow, L"跟随游戏帧率"));
+							else
+								swprintf_s(buf, 192, UiText(UiId::NavRefreshRow,
+									L"[%d] %s [%d]  - / + 调节"), row + 1, name, value);
+						}
 						else
 							swprintf_s(buf, 192, UiText(UiId::NavRefreshRow, L"[%d] %s [%d]  - / + 调节"), row + 1, name, value);
 						line(52 + row * rh, (skeeto_nav::Maximum(index) != 1 || index == kNavArrowColorSetting) ? cAdjust
@@ -29793,9 +29799,9 @@ static void MenuPaintEngine() {
 					} else if (g_menuPage == kMenuPageNavRoute && row == 3) {
 						line(52 + row * rh, skeeto_nav::Active() ? cText : cMuted,
 							UiText(UiId::NavReload, L"[4] 重新读取 NAV"));
-					} else if (g_menuPage == kMenuPageNavRoute && row == 5) {
-						line(52 + row * rh, skeeto_nav::Get(8) && skeeto_nav::Get(44) ? cText : cMuted,
-							UiText(UiId::NavWorldEdit, L"[6] 调整路线提示 HUD 位置"));
+					} else if (g_menuPage == kMenuPageNavRoute && row == 6) {
+						line(52 + row * rh, skeeto_nav::Get(8) && skeeto_nav::Get(44) && skeeto_nav::Get(kNavWorldHudSetting) ? cText : cMuted,
+							UiText(UiId::NavWorldEdit, L"[7] 调整路线提示 HUD 位置"));
 					}
 				}
 			}
@@ -29819,7 +29825,7 @@ static void MenuPaintEngine() {
 			}
 			if (g_menuPage == kMenuPageNavDisplay)
 				line(statusY + 2 * rh, cHint, UiText(UiId::NavRefreshHint,
-					L"默认 10 FPS，最高 60；同时控制小地图与世界路线提示的数据刷新，数值越高处理开销越大。"));
+					L"默认 60 FPS，最高 120，也可调到跟随当前游戏帧率；同时控制小地图与世界路线提示的数据刷新，数值越高处理开销越大。"));
 			footerNav(); pageNav(subN);
 		} else if (g_menuPage == kMenuPageBackgroundEngine) {
 			swprintf_s(buf, 192, UiText(UiId::BackgroundPageTitle, L"主菜单背景引擎  v%s"), SKEETO_VERSION_W);
@@ -34975,7 +34981,7 @@ static void MenuPaintEngine() {
 			int y = 48;
 			const int lh = MenuDesignLineH();
 			y = SurfWrapDesign(y, cHint, UiText(UiId::NetGraphHudHint,
-				L"显示 FPS、Ping、Loss、Choke、Lerp；完整模式另含 IN/OUT、SV（服务器帧率）、VAR（抖动 msec）。"), MenuHintGap());
+				L"显示 FPS、Ping、Loss、Choke、Lerp、SV Tick / CL Tick；完整模式另含 IN/OUT、SV（服务器帧率）、VAR（抖动 msec）。"), MenuHintGap());
 			for (int i = 0; i < SinglePageMenuItemCount(kNetGraphHudMenuItems); ++i) {
 				const int digit = i + 1;
 				COLORREF rowColor = cText;
@@ -35011,7 +35017,7 @@ static void MenuPaintEngine() {
 					break;
 				case NetGraphHudMenuAction::CycleDetail:
 					y = SurfWrapDesign(y - 4, cMuted, UiText(UiId::NetGraphHudDetailHint,
-						L"    简洁：FPS / Ping / Lerp、收发包频率、Loss / Choke。完整：再加 IN/OUT 流量；SV 为服务器帧率，VAR 为帧时间抖动（msec）。"), MenuHintGap());
+						L"    简洁：FPS / Ping / Lerp、SV Tick / CL Tick、Loss / Choke。完整：再加 IN/OUT 流量；SV 为服务器帧率，VAR 为帧时间抖动（msec）。"), MenuHintGap());
 					break;
 				case NetGraphHudMenuAction::AdjustScale:
 					line(y, RGB(180, 220, 255), UiText(UiId::Text_5e126387, L"    方向键全屏挪位置（按住连移，Shift 大步）"));
@@ -40464,8 +40470,8 @@ static void MenuProcessKeyImpl(int digit) {
 			g_navMenuSel = -1;
 			skeeto_nav::Reload();
 			EngClientCmd("play buttons/button14");
-		} else if (g_menuPage == kMenuPageNavRoute && digit == 6
-			&& skeeto_nav::Get(8) && skeeto_nav::Get(44)) {
+		} else if (g_menuPage == kMenuPageNavRoute && digit == 7
+			&& skeeto_nav::Get(8) && skeeto_nav::Get(44) && skeeto_nav::Get(kNavWorldHudSetting)) {
 			g_navMenuSel = -1;
 			MenuToggle();
 			skeeto_nav::BeginWorldHudEdit();
@@ -47251,26 +47257,26 @@ static int TabAvatarFetchOne(void* fr, void* ut, uint64_t sid, unsigned char* ou
 		return -1;
 	if (!largeFn && !mediumFn && (!av || !IsExec((void*)av))) return -1;
 	__try {
-		const bool busy = req(fr, sid, false);
+		// RequestUserInformation: true = persona already local, false = request sent.
+		const bool already = req(fr, sid, false);
 		int img = 0;
-		bool finalImage = true;
+		bool largeReady = false;
+		bool largeLoading = false;
 		if (largeFn) {
 			const int large = largeFn(fr, sid);
-			if (large > 0) img = large;
-			else finalImage = large < 0;
+			if (large > 0) { img = large; largeReady = true; }
+			else if (large < 0) largeLoading = true; // -1 = still downloading
 		}
-		if (img <= 0) {
+		if (img <= 0)
 			img = mediumFn ? mediumFn(fr, sid) : (av ? av(fr, sid) : 0);
-			if (img > 0 && largeFn && !finalImage) finalImage = false;
-		}
-		if (img == -1 || (img == 0 && busy)) return 0;
-		if (img <= 0) return -1;
+		if (img < 0) return 0; // Steam: -1 = still loading
+		if (img == 0) return (already && !largeLoading) ? -1 : 0;
 		uint32_t iw = 0, ih = 0;
 		if (!sz(ut, img, &iw, &ih) || iw == 0 || ih == 0 || iw > (uint32_t)kTabAvPx || ih > (uint32_t)kTabAvPx) return -1;
 		if (!rgba(ut, img, out, (int)(iw * ih * 4u))) return 0;
 		*w = (int)iw;
 		*h = (int)ih;
-		return finalImage ? 1 : 2;
+		return largeReady ? 1 : (largeLoading ? 2 : 1);
 	} __except (EXCEPTION_EXECUTE_HANDLER) {
 		return -1;
 	}
@@ -47295,7 +47301,9 @@ static void TabAvatarFetch(int maxWork) {
 	bool ifaces = false;
 	const DWORD now = GetTickCount();
 	int work = 0;
-	for (int i = 1; i <= 32 && work < maxWork; ++i) {
+	for (int pass = 0; pass < 2 && work < maxWork; ++pass) {
+		const bool upgrades = pass == 1;
+		for (int i = 1; i <= 32 && work < maxWork; ++i) {
 		PlayerInfo pi{};
 		if (!EngPlayerInfo(i, &pi) || PlayerInfoIsBot(pi)) continue;
 		uint32_t acct = 0;
@@ -47306,6 +47314,7 @@ static void TabAvatarFetch(int maxWork) {
 		a->lastUse = now;
 		const bool have = a->state == kTabAvRgba || a->state == kTabAvReady;
 		if (have && a->grade >= 2) continue;
+		if (!upgrades && have) continue;
 		if (have && a->retryAt && (LONG)(now - a->retryAt) < 0) continue;
 		if (a->state == kTabAvNone && (LONG)(now - a->retryAt) < 0) continue;
 		if (!ifaces) {
@@ -47347,11 +47356,12 @@ static void TabAvatarFetch(int maxWork) {
 			a->retryAt = now + 120000u;
 		}
 	}
+	}
 }
 
-static void TabAvatarUploadTick() {
+static void TabAvatarUploadTick(int budget = 2) {
 	if (!g_surf) return; // keep RGBA avatar data pending until the Paint Surface exists
-	int budget = 2;
+	if (budget < 1) budget = 1;
 	for (int i = 0; i < kTabAvMax && budget > 0; ++i) {
 		TabAvatar& a = g_tbAv[i];
 		if (a.state == kTabAvReady && a.epoch != g_sktFontEpoch) a.state = kTabAvRgba;
@@ -47374,6 +47384,14 @@ static void TabAvatarUploadTick() {
 static int TabAvatarTex(uint32_t acct) {
 	const TabAvatar* a = TabAvatarFind(acct);
 	return (a && a->state == kTabAvReady && a->texPlus1 > 0) ? a->texPlus1 - 1 : -1;
+}
+
+// In-game only: pull missing avatars and upload all pending RGBA before the
+// settle snapshot goes quiet (loading Paint must not CreateNewTextureID).
+static void ChapStatsAvatarFlush() {
+	if (!g_engine || !EngInGame() || EngDrawingLoading()) return;
+	TabAvatarFetch(16);
+	TabAvatarUploadTick(kTabAvMax);
 }
 
 // ---- commands ----------------------------------------------------------------
@@ -48385,7 +48403,7 @@ static void TabBoardPaint() {
 			TbFill(ax, ay, ax + avS, ay + avS, 30, 36, 46, 255);
 			int tex = r.acct ? TabAvatarTex(r.acct) : -1;
 			if (tex < 0 && icons && !inf && r.ch >= 0 && TeamHudFullReady(false))
-				tex = TeamHudBindFace(r.ch, r.incap);
+				tex = TeamHudBindFace(r.ch, r.incap, r.ent);
 			if (tex >= 0) {
 				SurfColor(255, 255, 255, 255);
 				SurfDrawTextured(ax, ay, ax + avS, ay + avS, tex);
@@ -49770,6 +49788,7 @@ static void ChapStatsWarmAfterFreeze() {
 
 static void ChapStatsFreeze() {
 	ChapStatsFreezeData(true);
+	ChapStatsAvatarFlush();
 	ChapStatsWarmAfterFreeze();
 }
 
@@ -50052,8 +50071,12 @@ static void ChapStatsTick() {
 		g_mainUiBattlePending = false;
 	}
 	// Event-thread FreezeData leaves fonts/faces cold — warm while still in-game.
-	if (g_csSnapValid && EngInGame() && !EngDrawingLoading())
+	// Freeze already did one ChapStatsAvatarFlush burst; keep retries rate-limited
+	// here (Prefetch) instead of Fetch(16)+Upload(all) every Paint.
+	if (g_csSnapValid && EngInGame() && !EngDrawingLoading()) {
+		ChapStatsAvatarPrefetch();
 		ChapStatsWarmAfterFreeze();
+	}
 	if (!EngInGame() || EngDrawingLoading()) return;
 	if (g_csSnapValid && !g_hudPostMissionQuiet
 		&& (LONG)(GetTickCount() - g_csSnapAt) > 1500) {
@@ -50120,13 +50143,13 @@ static void ChapStatsOnToggle() {
 
 // Normal (non-quiet) HUD paint only: the snapshot is drawn during visual quiet,
 // where no texture upload happens, so Steam avatars are cached ahead of time.
-// Every 3 s: <= 2 Steam requests (TAB board cache) and <= 2 texture uploads.
+// Every 1 s: <= 8 Steam requests (TAB board cache, missing first) and <= 2 uploads.
 static DWORD g_csAvAt = 0;
 static void ChapStatsAvatarPrefetch() {
 	const DWORD now = GetTickCount();
-	if (g_csAvAt && (LONG)(now - g_csAvAt) < 3000) return;
+	if (g_csAvAt && (LONG)(now - g_csAvAt) < 1000) return;
 	g_csAvAt = now;
-	TabAvatarFetch(2);
+	TabAvatarFetch(8);
 	TabAvatarUploadTick();
 	ChapStatsPrefetchFaces();
 }
@@ -56098,17 +56121,29 @@ static int ReachAnimActivityOf(void* animating, int seq) {
 	return activity;
 }
 
+int SktAnimatingStudioHdrOff() {
+	static int off = -2;
+	if (off != -2) return off;
+	off = -1;
+	StaggerHudResolveActivityFn();
+	const uint8_t* f = (const uint8_t*)g_staggerActivityFn;
+	if (f && PtrCommitted(f) && PtrCommitted(f + 0x1E)) {
+		// 83 BE imm32 00 : cmp dword ptr [esi+m_pStudioHdr], 0
+		unsigned char op[7]{};
+		if (skmem::Copy(op, f + 0x18, sizeof(op)) && op[0] == 0x83 && op[1] == 0xBE && op[6] == 0x00) {
+			const int v = *(const int*)(op + 2);
+			if (v >= 0x100 && v <= 0x3000) off = v;
+		}
+	}
+	return off;
+}
+
 static void ReachAnimResolve() {
 	if (g_reachResolveTried) return;
 	g_reachResolveTried = true;
-	StaggerHudResolveActivityFn();
+	g_reachHdrOff = SktAnimatingStudioHdrOff();
 	const uint8_t* f = (const uint8_t*)g_staggerActivityFn;
 	if (f && PtrCommitted(f) && PtrCommitted(f + 0x50)) {
-		// 83 BE imm32 00 : cmp dword ptr [esi+m_pStudioHdr], 0
-		if (f[0x18] == 0x83 && f[0x19] == 0xBE && f[0x1E] == 0x00) {
-			const int off = *(const int*)(f + 0x1A);
-			if (off >= 0x100 && off <= 0x3000) g_reachHdrOff = off;
-		}
 		if (f[0x4A] == 0xE8) {
 			const uint8_t* gsa = f + 0x4F + *(const int32_t*)(f + 0x4B);
 			static const uint8_t kGsa[] = { 0x55, 0x8B, 0xEC, 0x57, 0x8B, 0x7D, 0x08, 0x85, 0xFF, 0x74 };

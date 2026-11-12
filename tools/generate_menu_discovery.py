@@ -494,7 +494,7 @@ def build():
     nav_labels=array_rows(source,'kNavUiLabels')
     display=re.search(r'kNavDisplaySettings\[\]\s*=\s*\{([^}]+)',source)[1]
     nav = [('kMenuPageNavDisplay',i//9,i%9+1,int(value.strip())) for i,value in enumerate(display.split(','))]
-    nav += [('kMenuPageNavRoute',0,row,index) for row,index in ((1,8),(2,9),(3,44),(5,47))]
+    nav += [('kMenuPageNavRoute',0,row,index) for row,index in ((1,8),(2,9),(3,44),(5,47),(6,51))]
     ranges={m[1]:int(m[2]) for m in re.finditer(r'constexpr int (kNav\w+Setting)\s*=\s*(\d+)',source)}
     for prefix in ('Supplies','Weapons'):
         begin=ranges['kNav'+prefix+'FirstSetting'];end=ranges['kNav'+prefix+'EndSetting']

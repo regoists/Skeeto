@@ -64,7 +64,7 @@ static int itemCursor,itemHighest;static minimap::View itemScanView;static unsig
 static unsigned itemSweeps,itemChanges;
 static performance::Metric frameCost,itemCost,paintCost,uploadCost;
 static void *engine,*engineVGui,*entities,*surface,*filesystem;
-static char mapName[240],navPath[256];static void* navFile;static unsigned readAt,lastMapCheck,lastFrame,lastRead;
+static char mapName[240],navPath[256];static void* navFile;static unsigned readAt,lastMapCheck,lastFrame,lastRead;static long long lastFrameClock;
 static bool inSession,liveFrame,textureDirty,firstFrameReported;static int texture;static unsigned font,lastDependencyAttempt;static int fontSize,lastScreenW,lastScreenH;
 static const WCHAR* navStatus=L"等待地图";
 static const WCHAR* LocalizedLoadStatus(){
@@ -379,7 +379,7 @@ static void ResetMinimapPresentation(){
     if(texture&&MethodOK(surface,33))VCall<void(__thiscall*)(void*,int)>(surface,33)(surface,texture);
     texture=0;textureDirty=true;labelRaster=labelOverlay=~0u;
     itemCursor=0;itemSnapshot.count=0;lastItemPoll=0;
-    sceneValid=terrainValid=false;liveFrame=false;lastFrame=0;
+    sceneValid=terrainValid=false;liveFrame=false;lastFrame=0;lastFrameClock=0;
 }
 namespace skeeto_nav {
 bool PresentationActive(){return settings.enabled!=0||(settings.navigation!=0&&settings.worldNavigation!=0)||RadarEnabled();}
@@ -401,7 +401,7 @@ void SetProgressEnabled(bool enabled){
     if(progressEnabled==enabled)return;
     progressEnabled=enabled;navigator.measureLength=enabled&&!progressRoundEnded;ResetProgress();
     // Enabling on an already cached route must initialize its length once.
-    navigator.routeSource=nav::Invalid;lastFrame=0;
+    navigator.routeSource=nav::Invalid;lastFrame=0;lastFrameClock=0;
     if(enabled&&navDeferred&&inSession)Reload();
     else if(!enabled&&!Active())ResetSession();
 }
@@ -492,7 +492,7 @@ void Set(int index,int value){if(index<0||index>=kSettingCount)return;value=Limi
     if(index==8&&!value){if(!progressEnabled)navigator.Clear();worldOverlay.Clear();}
     if((index==8||index==controls::WorldIndex)&&!Active()){ResetSession();return;}
     if(index==9){if(navigator.prepared)navigator.Select(value);}
-    else if(index<controls::WorldArrowColorIndex||index>controls::WorldHudYIndex){sceneValid=terrainValid=false;itemCursor=0;lastItemPoll=lastRoutePoll=lastFrame=0;}}
+    else if(index!=controls::WorldHudIndex&&(index<controls::WorldArrowColorIndex||index>controls::WorldHudYIndex)){sceneValid=terrainValid=false;itemCursor=0;lastItemPoll=lastRoutePoll=lastFrame=0;lastFrameClock=0;}}
 void Reload(){if(!Active())return;char name[240]{};CopyText(name,sizeof name,mapName);StartMap(name);}
 void InvalidateFonts(){fontSize=supplyFontSize=worldFontSize=0;supplyradar::InvalidateFonts();}
 void Shutdown(){ResetSession();supplyradar::ReleaseArtwork();supplyradar::UnloadFonts();supplyradar::options::values[0]=0;settings.enabled=0;ready=false;}
@@ -502,7 +502,7 @@ bool Editing(){return mapEditor.active;}
 bool MinimapEditing(){return mapEditor.active&&!worldHudEditing;}
 bool WorldHudEditing(){return worldHudEditing;}
 void BeginEdit(){if(settings.enabled&&inSession){mapEditor.Begin();}}
-void BeginWorldHudEdit(){if(settings.navigation&&settings.worldNavigation&&inSession){mapEditor.Begin();worldHudEditing=true;}}
+void BeginWorldHudEdit(){if(settings.navigation&&settings.worldNavigation&&settings.worldHud&&inSession){mapEditor.Begin();worldHudEditing=true;}}
 void EndEdit(){EndPositionEdit();}
 void EditKey(unsigned key,bool down){mapEditor.Key(key,down);}
 bool ConsumeSettingsChanged(){bool changed=settingsChanged;settingsChanged=false;return changed;}
@@ -511,7 +511,7 @@ void SetPaused(bool paused){pausedByUser=paused;}
 void Pump(bool inGame,bool gameUiVisible,bool menuVisible){
     const int boundary=progressBoundary.exchange(0,std::memory_order_acq_rel);
     if(boundary){ResetProgress();progressRoundEnded=boundary==2;
-        navigator.measureLength=progressEnabled&&!progressRoundEnded;navigator.routeSource=nav::Invalid;lastFrame=0;}
+        navigator.measureLength=progressEnabled&&!progressRoundEnded;navigator.routeSource=nav::Invalid;lastFrame=0;lastFrameClock=0;}
     if(!Active()){if(inSession||navFile||mesh.count)ResetSession();return;}
     menuShown=menuVisible;uiShown=gameUiVisible;
     if(!inGame){if(inSession)ResetSession();return;}
@@ -528,7 +528,7 @@ void Pump(bool inGame,bool gameUiVisible,bool menuVisible){
         if(result==nav::ParseJob::Result::Ready||result==nav::ParseJob::Result::Failed){
             navStatus=result==nav::ParseJob::Result::Ready?L"通路":L"导航不兼容";
             loading.Clear();++meshSerial;navigator.Clear();floorTracker.Reset();
-            sceneValid=terrainValid=false;lastFrame=0;
+            sceneValid=terrainValid=false;lastFrame=0;lastFrameClock=0;
         }
     }
     BugStep();
@@ -545,7 +545,7 @@ void Pump(bool inGame,bool gameUiVisible,bool menuVisible){
             else changed=mapEditor.Step(now,w,h,settings.size,settings.posX,settings.posY,fastStep);}
         if(changed){if(!worldHudEditing)sceneValid=terrainValid=false;settingsChanged=true;}}
     const bool presentation=settings.enabled||(settings.navigation&&settings.worldNavigation);
-    if((presentation||(progressEnabled&&!progressRoundEnded))&&now-lastFrame>=unsigned(presentation?(1000+settings.refreshFps-1)/settings.refreshFps:500)){lastFrame=now;UpdateFrame();}
+    if(presentation||(progressEnabled&&!progressRoundEnded)){const bool due=!presentation?now-lastFrame>=500:settings.refreshFps>=controls::RefreshFollow||!lastFrameClock||performance::Microseconds(performance::Now()-lastFrameClock)>=(1000000u+(unsigned)settings.refreshFps-1u)/(unsigned)settings.refreshFps;if(due){lastFrame=now;lastFrameClock=performance::Now();UpdateFrame();}}
 }
 void Paint(bool showMap,bool showWorld,bool showRadar){showMap=showMap&&settings.enabled;showWorld=(showWorld||worldHudEditing)&&settings.navigation&&settings.worldNavigation;if(Active()&&liveFrame&&ready&&!uiShown&&(showMap||showWorld))Draw(showMap,showWorld);if(showRadar&&RadarEnabled()&&supplyradar::live&&ready&&!uiShown)supplyradar::Draw();}
 bool DrawSupplyIcon(unsigned label,int x,int y,int w,int h){

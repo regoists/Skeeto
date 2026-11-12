@@ -186,7 +186,7 @@ static bool RequiredLadderWorksFromFirstLocation() {
 
 int main() {
 	const controls::Settings defaults{};
-	if (defaults.refreshFps != 10 || controls::specs[controls::RefreshIndex].maximum != 60) {
+	if (defaults.refreshFps != 60 || controls::specs[controls::RefreshIndex].maximum != controls::RefreshFollow || controls::RefreshFollow != 125) {
 		std::fprintf(stderr, "NAV refresh default/range changed unexpectedly\n"); return 6;
 	}
 	if (!ParserRespectsEdgeBudget()) {

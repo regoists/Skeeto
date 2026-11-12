@@ -15,6 +15,24 @@ Then extract all contents of the new package into the game's root directory. If 
 
 项目开源链接：https://github.com/regoists/Skeeto
 
+## 2.2.17（2026-11-12）
+	Skeeto核心：
+修改：
+- 路线导航 HUD 可单独开关：关闭只收起屏幕卡片，地面路线箭头仍按原开关工作。默认开启。
+- 自定义 HUD 人物头像适配 L4N_Survivor 运行时分配的角色模型（血条、导演HUD、TAB）。章节统计结算页未改动。
+- 小地图刷新率默认改为 60Hz，上限 120Hz，并可设置跟随游戏帧率。已保存的刷新率不会自动改写，可在「小地图显示与布局」中调整或重置该项。
+修复：
+- Steam 头像预取与本地可用性判定修正，改善中途加入时头像空白。
+- 网络参数 HUD 完整模式补回 SV Tick / CL Tick，完整模式为 5 行。
+	Skeeto Core:
+Changed:
+- Route navigation HUD can be toggled separately: turning it off only collapses the on-screen cards, ground route arrows still work according to the original toggle. Enabled by default.
+- Custom HUD character avatars adapt to the character models assigned at runtime by L4N_Survivor (health bar, director HUD, TAB). The chapter stats settlement page is unchanged.
+- Minimap refresh rate default is changed to 60Hz, upper limit 120Hz, and can be set to follow the game frame rate. Saved refresh rates will not be automatically overwritten, and this item can be adjusted or reset in "Minimap Display and Layout".
+Fixed:
+- Steam avatar prefetch and local availability determination corrected, improving blank avatars when joining mid-game.
+- Network parameter HUD full mode restores SV Tick / CL Tick, full mode is 5 lines.
+
 ## 2.2.16（2026-11-10）
 	Skeeto核心：
 新增：

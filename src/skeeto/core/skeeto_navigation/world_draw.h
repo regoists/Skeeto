@@ -22,7 +22,7 @@ static void DrawWorldHudEditPreview(int width,int height,int pixels){
     const int boxW=Limit((chars+3)*pixels+20,210,width/2),boxH=pixels+20;
     int x=0,y=0;WorldHudPosition(width,height,boxW,boxH,x,y);
     const unsigned color=WorldArrowColor(settings.worldArrowColor);
-    Rect(x,y,boxW,boxH,10,20,27,190);Rect(x,y,2,boxH,(color>>16)&255,(color>>8)&255,color&255,210);
+    Rect(x,y,boxW,boxH,10,20,27,120);Rect(x,y,2,boxH,(color>>16)&255,(color>>8)&255,color&255,210);
     const int cx=x+21,cy=y+boxH/2;
     worldnav::Point tip{float(cx),float(cy-6),0},a{float(cx-6),float(cy+5),0},b{float(cx+6),float(cy+5),0};
     WorldLine(a,tip,color,230,1);WorldLine(b,tip,color,230,1);
@@ -89,29 +89,32 @@ static void DrawWorldNavigation(int width,int height){
             }
         }
     }
-    const WCHAR* message=UiText(UiId::NavHud29, L"场景接口不可用");unsigned color=minimap::Amber;float right=0,front=1;
-    if(!worldReady)message=UiText(UiId::NavHud30, L"场景导航接口不可用");
-    else if(!routed){auto status=minimap::NavigationStatus(navigator,false);message=status.text;color=status.color;
-        if(worldOverlay.path.hasTarget)camera.Bearing(worldOverlay.path.target,right,front);
-    }else {
-        message=worldnav::CueText(worldOverlay.path.cue);color=0x65dcd1;
-        if(worldOverlay.path.cue==worldnav::Cue::Special||worldOverlay.path.cue==worldnav::Cue::LadderUp||worldOverlay.path.cue==worldnav::Cue::LadderDown)color=minimap::Amber;
-        if(worldOverlay.path.hasNext&&navigator.state!=guidance::State::AtGoal){camera.Bearing(worldOverlay.path.next,right,front);
-            if(front<0)message=UiText(UiId::NavHud31, L"路线在身后 请转身");
-            else if(nav::Abs(right)>front*1.6f)message=right<0?UiText(UiId::NavHud32, L"路线在左侧"):UiText(UiId::NavHud33, L"路线在右侧");
-            else if(worldOverlay.path.cue==worldnav::Cue::Left){right=-2;front=1;}
-            else if(worldOverlay.path.cue==worldnav::Cue::Right){right=2;front=1;}
+    if(settings.worldHud){
+        const WCHAR* message=UiText(UiId::NavHud29, L"场景接口不可用");unsigned color=minimap::Amber;float right=0,front=1;
+        if(!worldReady)message=UiText(UiId::NavHud30, L"场景导航接口不可用");
+        else if(!routed){auto status=minimap::NavigationStatus(navigator,false);message=status.text;color=status.color;
+            if(worldOverlay.path.hasTarget)camera.Bearing(worldOverlay.path.target,right,front);
+        }else {
+            message=worldnav::CueText(worldOverlay.path.cue);color=0x65dcd1;
+            if(worldOverlay.path.cue==worldnav::Cue::Special||worldOverlay.path.cue==worldnav::Cue::LadderUp||worldOverlay.path.cue==worldnav::Cue::LadderDown)color=minimap::Amber;
+            if(worldOverlay.path.hasNext&&navigator.state!=guidance::State::AtGoal){camera.Bearing(worldOverlay.path.next,right,front);
+                if(front<0)message=UiText(UiId::NavHud31, L"路线在身后 请转身");
+                else if(nav::Abs(right)>front*1.6f)message=right<0?UiText(UiId::NavHud32, L"路线在左侧"):UiText(UiId::NavHud33, L"路线在右侧");
+                else if(worldOverlay.path.cue==worldnav::Cue::Left){right=-2;front=1;}
+                else if(worldOverlay.path.cue==worldnav::Cue::Right){right=2;front=1;}
+            }
         }
+        int chars=0;while(message[chars]&&chars<30)++chars;
+        int boxW=Limit((chars+3)*pixels+20,210,width/2),boxH=pixels+20,x=0,y=0;
+        WorldHudPosition(width,height,boxW,boxH,x,y);
+        Rect(x,y,boxW,boxH,10,20,27,120);Rect(x,y,2,boxH,(color>>16)&255,(color>>8)&255,color&255,210);
+        float cx=float(x+21),cy=float(y+boxH/2);worldnav::Point tip{cx,cy-6,0},a{cx-6,cy+5,0},b{cx+6,cy+5,0};
+        if(front<0){tip={cx,cy+6,0};a={cx-6,cy-5,0};b={cx+6,cy-5,0};}
+        else if(nav::Abs(right)>front*.7f){float side=right<0?-1.f:1.f;tip={cx+6*side,cy,0};a={cx-5*side,cy-6,0};b={cx-5*side,cy+6,0};}
+        if(worldReady&&navigator.state==guidance::State::AtGoal){Rect(int(cx)-3,int(cy)-3,6,6,(arrowColor>>16)&255,(arrowColor>>8)&255,arrowColor&255,230);}
+        else if(worldReady&&(routed||worldOverlay.path.hasTarget)){WorldLine(a,tip,arrowColor,230,1);WorldLine(b,tip,arrowColor,230,1);}
+        Text(x+40,y+9,message,color,worldFont);
     }
-    int chars=0;while(message[chars]&&chars<30)++chars;
-    int boxW=Limit((chars+3)*pixels+20,210,width/2),boxH=pixels+20,x=0,y=0;
-    WorldHudPosition(width,height,boxW,boxH,x,y);
-    Rect(x,y,boxW,boxH,10,20,27,190);Rect(x,y,2,boxH,(color>>16)&255,(color>>8)&255,color&255,210);
-    float cx=float(x+21),cy=float(y+boxH/2);worldnav::Point tip{cx,cy-6,0},a{cx-6,cy+5,0},b{cx+6,cy+5,0};
-    if(front<0){tip={cx,cy+6,0};a={cx-6,cy-5,0};b={cx+6,cy-5,0};}
-    else if(nav::Abs(right)>front*.7f){float side=right<0?-1.f:1.f;tip={cx+6*side,cy,0};a={cx-5*side,cy-6,0};b={cx-5*side,cy+6,0};}
-    if(worldReady&&navigator.state==guidance::State::AtGoal){Rect(int(cx)-3,int(cy)-3,6,6,(arrowColor>>16)&255,(arrowColor>>8)&255,arrowColor&255,230);}
-    else if(worldReady&&(routed||worldOverlay.path.hasTarget)){WorldLine(a,tip,arrowColor,230,1);WorldLine(b,tip,arrowColor,230,1);}
-    Text(x+40,y+9,message,color,worldFont);++worldPaints;
+    ++worldPaints;
 }
 

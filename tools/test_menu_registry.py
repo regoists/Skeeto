@@ -474,7 +474,7 @@ print(
 assert "kNavDisplaySettings[] = {0, 50, 46, 45, 1, 2, 3, 4, 5, 6, 7, -1}" in PROXY
 assert "g_menuPage == kMenuPageNavDisplay && g_menuSub == 1 && digit == 3" in PROXY
 assert "g_menuPage == kMenuPageNavRoute && digit == 4" in PROXY
-assert "g_menuPage == kMenuPageNavRoute && digit == 6" in PROXY
+assert "g_menuPage == kMenuPageNavRoute && digit == 7" in PROXY
 assert 'MapHudMissionPump((g_optMapHud || g_optTabBoard || g_optChapStats || EscUiWantsMapInfo())' in PROXY
 
 # Full kMenuPage* audit: uniqueness, complete coverage, and kMenuPageIdNext = max+1.

@@ -88,9 +88,10 @@ class DiscoveryCatalog(unittest.TestCase):
             "NativeUiFontSize": {(131, 0, 5), (132, 0, 4)},
             "SoundVolumeUi": {(70, 1, 7)},
             "NavLabel47": {(86, 0, 5)},
+            "NavLabel51": {(86, 0, 6)},
             "NavEdit": {(85, 1, 3)},
             "NavReload": {(86, 0, 4)},
-            "NavWorldEdit": {(86, 0, 6)},
+            "NavWorldEdit": {(86, 0, 7)},
             "RadarHomeChanges": {(0, 2, 4)},
             # TabBoard OpenStyle uses [%d] + shared style-page paint; catalog keeps ChapStats style root.
             "PanelStyleEntry": {(83, 0, 0)},
