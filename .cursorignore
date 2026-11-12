@@ -1,3 +1,4 @@
+# Cursor index ignore list.
 # Ignore heavy/generated files so Cursor indexing does not OOM.
 # Source under src/, packages/*/source, and docs stays indexed.
 
