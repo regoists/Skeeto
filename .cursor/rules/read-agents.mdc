@@ -5,6 +5,8 @@ alwaysApply: true
 
 # Read AGENTS.md
 
+Cursor editor rules for this repository.
+
 This repository has one authoritative project-rules document: `AGENTS.md` at the repo root.
 
 - Read `AGENTS.md` in full and follow it.
