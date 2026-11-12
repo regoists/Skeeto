@@ -49,5 +49,3 @@ Before making changes, read [AGENTS.md](AGENTS.md) and follow its task index int
 
 Thanks to the [Necola](https://github.com/Punizione/Necola) project and its developer Punizione.
 Skeeto was inspired by Necola at the start of the project, and its developer provided substantial help during development.
-
-The current packaged version is recorded in `VERSION.txt`.
