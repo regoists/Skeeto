@@ -1,4 +1,3 @@
-# Git line-ending and attributes.
 # Normalize text files across checkouts.
 * text=auto
 
