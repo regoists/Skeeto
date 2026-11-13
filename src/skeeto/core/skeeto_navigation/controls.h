@@ -46,7 +46,7 @@ static constexpr Spec specs[]={
     {"skeeto_nav_weapon_melee",L"WeaponMelee",0,1},
     {"skeeto_nav_weapon_chainsaw",L"WeaponChainsaw",0,1},
     {"skeeto_nav_world_navigation",L"WorldNavigation",0,1},
-    {"skeeto_nav_refresh_fps",L"RefreshFps",10,60},
+    {"skeeto_nav_refresh_fps",L"RefreshFps",10,120},
     {"skeeto_nav_style",L"Style",0,1},
     {"skeeto_nav_world_arrow_color",L"WorldArrowColor",0,6},
     {"skeeto_nav_world_hud_x",L"WorldHudX",0,10000},
