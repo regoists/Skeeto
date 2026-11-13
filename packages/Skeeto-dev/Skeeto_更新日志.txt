@@ -15,6 +15,24 @@ Then extract all contents of the new package into the game's root directory. If 
 
 项目开源链接：https://github.com/regoists/Skeeto
 
+## 2.2.18（2026-11-14）
+	Skeeto核心：
+修改：
+- 撤回 2.2.17 的 L4N_Survivor 头像适配；自定义 HUD、导演 HUD、TAB 人物头像回到原版材质路径。
+- 小地图刷新率恢复默认 10，上限 120，不再提供跟随游戏帧率。已保存的刷新率不会自动改回 10；若曾设为跟随档 125，会夹到 120。可在「小地图显示与布局」中调整或重置。
+- 小地图纹理上传增加失败防护，失败后下一帧再创建。
+- 物资扫描等共享描边的默认绿改为更偏绿的颜色（原默认在游戏里偏黄）。新增黄绿、青绿、紫色、粉色；原先那档黄绿改为第 9 项。已保存为默认/第 1 项的用户会看到新的绿色。
+修复：
+- Steam 头像在请求尚未完成时不再被当成失败，减少中途加入时头像空白；加载界面期间不再上传头像。
+	Skeeto Core:
+Changed:
+- Withdraws the L4N_Survivor avatar adaptation from 2.2.17; custom HUD, director HUD, and TAB character portraits return to the vanilla material path.
+- Minimap refresh rate default is restored to 10, upper limit 120, and no longer follows the game frame rate. Saved refresh rates will not automatically revert to 10; a previously saved follow-rate value of 125 is clamped to 120. This item can be adjusted or reset in "Minimap Display and Layout".
+- Minimap texture uploads add failure protection and are recreated on the next frame if an upload fails.
+- The default green of shared outlines (item scan and related) is changed to a greener color (the previous default looked yellowish in-game). Adds lime, teal, purple, and pink; the previous yellowish-green is now the 9th option. Users who saved the default / 1st option will see the new green.
+Fixed:
+- Steam avatars are no longer treated as failed while a request is still pending, reducing blank avatars when joining mid-game; avatars are no longer uploaded during the loading screen.
+
 ## 2.2.17（2026-11-12）
 	Skeeto核心：
 修改：
