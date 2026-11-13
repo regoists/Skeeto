@@ -39,6 +39,7 @@ inline void End(){active=false;ResetCursor();}
 inline Box Sized(Box b,int scale){float factor=float(scale)/100.f;b.w=Limit(int(float(b.w)*factor+.5f),16,width-8);b.h=Limit(int(float(b.h)*factor+.5f),8,height-8);return b;}
 // b carries the coordinate-size box; only its position is produced.
 inline void Decode(unsigned id,Box& b){auto& item=items[id];b.x=4+((width-b.w-8)*item.x+5000)/10000;b.y=4+((height-b.h-8)*item.y+5000)/10000;}
+inline int Position(int screen,int size,int coord){return 4+((screen-size-8)*coord+5000)/10000;}
 inline Box Place(unsigned id,Box automatic){
     if(id>=Count)return automatic;
     automaticBoxes[id]=automatic;
