@@ -2740,7 +2740,7 @@ SKEETO_UI(NavLabel44, L"World route cues")
 SKEETO_UI(NavLabel45, L"Minimap and route refresh rate (FPS)")
 SKEETO_UI(NavLabel46, L"Minimap style")
 SKEETO_UI(NavRefreshRow, L"[%d] %s [%d]  - / + adjust")
-SKEETO_UI(NavRefreshHint, L"Defaults to 60 FPS, up to 120, or follow the current game framerate. Updates minimap and world route data; higher rates cost more processing.")
+SKEETO_UI(NavRefreshHint, L"Defaults to 10 FPS, up to 60. Updates minimap and world route data; higher rates cost more processing.")
 SKEETO_UI(NavMapStyleClassic, L"Classic")
 SKEETO_UI(NavMapStyleTactical, L"Tactical night")
 

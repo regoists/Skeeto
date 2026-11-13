@@ -167,7 +167,7 @@ int TeamHudOfficialSet(const char* map);
 int TeamHudQuerySurvivorSet();
 int TeamHudNameSetHint(const char* n);
 int TeamHudFaceFromProp(int prop, bool l4d1Slots);
-int TeamHudBindFace(int ch, bool incap, int entIdx);
+int TeamHudBindFace(int ch, bool incap);
 int TeamHudBindSi(int cap);
 COLORREF TeamHudCapColor(int cap);
 int CapHudColorSlot(int cap);
@@ -2097,84 +2097,7 @@ int TeamHudFaceFromProp(int prop, bool l4d1Slots) {
 }
 
 
-// L4N_Survivor can assign any pack model to any survivor slot. Portraits are
-// vgui/l4n_s/<key>. Player m_nModelIndex is not a usable GetModel index, and
-// scanning entity bytes for hdr pointers is not allowed on Paint. The offset
-// is the same GetSequenceActivity+0x18 signature already used by reach-anim.
-static bool TeamHudL4nKeyFromModel(const char* model, char* key, int keyN) {
-	if (!model || !model[0] || !key || keyN < 2) return false;
-	const char* p = nullptr;
-	for (const char* s = model; *s && !p; ++s) {
-		if (!_strnicmp(s, "models/l4n/s/", 13)) p = s + 13;
-		else if (!_strnicmp(s, "l4n/s/", 6)) p = s + 6;
-	}
-	if (!p) {
-		for (const char* s = model; *s; ++s) {
-			if (!_strnicmp(s, "survivors/", 10)) { p = s + 10; break; }
-		}
-		// Vanilla models/survivors/survivor_*.mdl has no inner directory.
-		// Only survivors/<dir>/file.mdl (converted L4N packs) is a pack key.
-		if (p) {
-			const char* slash = p;
-			while (*slash && *slash != '/' && *slash != '\\' && *slash != '.') ++slash;
-			if (*slash != '/' && *slash != '\\') p = nullptr;
-		}
-	}
-	if (!p || !*p) return false;
-	const char* e = p;
-	while (*e && *e != '/' && *e != '\\' && *e != '.' && (e - p) < keyN - 1) ++e;
-	if (e <= p) return false;
-	memcpy(key, p, (size_t)(e - p));
-	key[e - p] = 0;
-	return key[0] != 0;
-}
-
-static bool TeamHudStudioName(void* pe, char* out, int outN) {
-	if (!pe || !out || outN < 8) return false;
-	out[0] = 0;
-	const int off = SktAnimatingStudioHdrOff();
-	if (off < 0) return false;
-	uint8_t* hdrObj = nullptr;
-	if (!EntRead(pe, off, &hdrObj) || !hdrObj || ((uintptr_t)hdrObj & 3))
-		return false;
-	int magic = 0;
-	if (!skmem::Copy(&magic, hdrObj, sizeof(magic))) return false;
-	if (magic != 0x54534449) { // IDST; else CStudioHdr { studiohdr_t*, ... }
-		uint8_t* inner = nullptr;
-		if (!skmem::Copy(&inner, hdrObj, sizeof(inner)) || !inner || ((uintptr_t)inner & 3))
-			return false;
-		if (!skmem::Copy(&magic, inner, sizeof(magic)) || magic != 0x54534449)
-			return false;
-		hdrObj = inner;
-	}
-	if (!skmem::CopyCStr(out, (size_t)outN, (const char*)(hdrObj + 12)))
-		return false;
-	const int n = (int)strlen(out);
-	if (n < 6) return false;
-	if (!strstr(out, ".mdl") && !strstr(out, ".MDL")) return false;
-	if (!strchr(out, '/') && !strchr(out, '\\')) return false;
-	return true;
-}
-
-int TeamHudBindFace(int ch, bool incap, int entIdx) {
-	if (entIdx > 0 && g_engine && EngInGame() && !EngDrawingLoading()) {
-		void* pe = EntGet(entIdx);
-		if (pe && EntReadable(pe)) {
-			char model[80]{};
-			char key[96]{};
-			if (TeamHudStudioName(pe, model, (int)sizeof(model))
-				&& TeamHudL4nKeyFromModel(model, key, (int)sizeof(key))) {
-				char buf[176];
-				_snprintf_s(buf, sizeof(buf), _TRUNCATE, "vgui/l4n_s/%s%s", key, incap ? "_incap" : "");
-				int id = SurfHudMat(buf);
-				if (id < 0 && incap) {
-					_snprintf_s(buf, sizeof(buf), _TRUNCATE, "vgui/l4n_s/%s", key);
-					id = SurfHudMat(buf);
-				}
-				if (id >= 0) return id;
-			}
-		}
-	}
+int TeamHudBindFace(int ch, bool incap) {
 	int id = SurfHudMat(TeamHudFaceMat(ch, incap));
 	if (id >= 0) return id;
 	if (incap) return SurfHudMat(TeamHudFaceMat(ch, false));
@@ -4582,7 +4505,7 @@ void WorldNoticePaint() {
 void TeamHudPaintFaceAt(const TeamHudSlot& s, int layoutSlot, int fx, int fy, int face, bool empty) {
 	(void)layoutSlot;
 	const int faceCh = empty ? 0 : ((s.character >= 0 && s.character < 8) ? s.character : 0);
-	const int idFace = TeamHudBindFace(faceCh, s.incap && !empty, empty ? 0 : s.ent);
+	const int idFace = TeamHudBindFace(faceCh, s.incap && !empty);
 	if (idFace >= 0) {
 		if (empty)
 			SurfColor(255, 255, 255, 70);
@@ -7733,7 +7656,7 @@ void DirectorHudPaint() {
 		}
 		const int fx = cx + (colW - face) / 2;
 		const int fy = barY + barH + HudScalePx(8, sc);
-		const int idFace = TeamHudBindFace(sp && sp->present ? sp->character : c, sp && sp->present && sp->incap, (sp && sp->present) ? sp->ent : 0);
+		const int idFace = TeamHudBindFace(sp && sp->present ? sp->character : c, sp && sp->present && sp->incap);
 		if (idFace >= 0) {
 			SurfColor(255, 255, 255, sp && sp->present ? 255 : 90);
 			SurfDrawTextured(fx, fy, fx + face, fy + face, idFace);
