@@ -15,6 +15,22 @@ Then extract all contents of the new package into the game's root directory. If 
 
 项目开源链接：https://github.com/regoists/Skeeto
 
+## 2.2.18（2026-11-14）
+	Skeeto核心：
+修改：
+- 撤回 2.2.17 的 L4N_Survivor 头像适配；自定义 HUD、导演 HUD、TAB 人物头像回到原版材质路径。
+- 小地图刷新率恢复默认 10，上限 120，不再提供跟随游戏帧率。可在「小地图显示与布局」中调整或重置。
+- 物资扫描等共享描边的默认绿改为更深绿的颜色。新增黄绿、青绿、紫色、粉色。
+修复：
+- 小地图纹理上传增加失败防护，失败后下一帧再创建。
+	Skeeto Core:
+Changed:
+- Reverted the L4N_Survivor avatar adaptation from 2.2.17; custom HUD, director HUD, and TAB character avatars return to the vanilla material path.
+- Minimap refresh rate restored to default 10, upper limit 120, no longer provides follow-game-frame-rate. Can be adjusted or reset in "Minimap Display and Layout".
+- The default green of shared outlines such as item scan is changed to a darker green color. Added yellow-green, cyan-green, purple, pink.
+Fixed:
+- Added failure protection for minimap texture upload, recreate on the next frame after failure.
+
 ## 2.2.17（2026-11-12）
 	Skeeto核心：
 修改：

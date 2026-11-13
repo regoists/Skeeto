@@ -1,5 +1,5 @@
-Skeeto 2.2.17
-released=2026-11-12
-semver=2.2.17
+Skeeto 2.2.18
+released=2026-11-14
+semver=2.2.18
 module=steam-bootstrap-transactional-update
-note=Steam avatar prefetch, NetGraph full-mode ticks, nav world HUD toggle, minimap 60/120/follow, L4N portraits
+note=Withdraw L4N portraits and minimap follow-framerate; minimap default 10 / max 120; Steam avatar pending fix; greener scan default and four extra outline colors

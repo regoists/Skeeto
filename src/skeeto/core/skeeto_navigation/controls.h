@@ -7,7 +7,7 @@ struct Settings {
     int enabled=0,size=300,range=1200,rotate=1,teammates=1,posX=0,posY=0,opacity=235,navigation=0,goal=0,items=0,itemRange=1200;
     int itemAmmo=1,itemBile=1,itemMolotov=1,itemPills=1,itemMedkit=1,itemPipeBomb=1,itemAdrenaline=1,itemDefib=1,itemLaser=1,itemWeapons=1;
     int weapons[22]={1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1};
-    int worldNavigation=1,refreshFps=60,style=0,worldArrowColor=0,worldHudX=5000,worldHudY=1400,shape=0,worldHud=1,edit=0,reload=0;
+    int worldNavigation=1,refreshFps=10,style=0,worldArrowColor=0,worldHudX=5000,worldHudY=1400,shape=0,worldHud=1,edit=0,reload=0;
 };
 struct Spec {const char* name;const WCHAR* key;int minimum,maximum;};
 static constexpr Spec specs[]={
@@ -46,7 +46,7 @@ static constexpr Spec specs[]={
     {"skeeto_nav_weapon_melee",L"WeaponMelee",0,1},
     {"skeeto_nav_weapon_chainsaw",L"WeaponChainsaw",0,1},
     {"skeeto_nav_world_navigation",L"WorldNavigation",0,1},
-    {"skeeto_nav_refresh_fps",L"RefreshFps",10,125},
+    {"skeeto_nav_refresh_fps",L"RefreshFps",10,120},
     {"skeeto_nav_style",L"Style",0,1},
     {"skeeto_nav_world_arrow_color",L"WorldArrowColor",0,6},
     {"skeeto_nav_world_hud_x",L"WorldHudX",0,10000},
@@ -58,7 +58,6 @@ static constexpr Spec specs[]={
 };
 constexpr int Count=sizeof(specs)/sizeof(specs[0]);
 constexpr int SizeIndex=1,XIndex=5,YIndex=6,GoalIndex=9,ItemFirstIndex=12,ItemTypeCount=10,WeaponFirstIndex=22,WeaponTypeCount=22,WorldIndex=44,RefreshIndex=45,StyleIndex=46,WorldArrowColorIndex=47,WorldHudXIndex=48,WorldHudYIndex=49,ShapeIndex=50,WorldHudIndex=51,EditIndex=52,ReloadIndex=53;
-constexpr int RefreshFollow=125;
 constexpr int PersistCount=EditIndex;
 static_assert(sizeof(Settings)==Count*sizeof(int),"Settings layout");
 // Seed granular defaults from the old coarse filter. Individual saved values

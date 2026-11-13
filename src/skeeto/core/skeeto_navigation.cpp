@@ -64,7 +64,7 @@ static int itemCursor,itemHighest;static minimap::View itemScanView;static unsig
 static unsigned itemSweeps,itemChanges;
 static performance::Metric frameCost,itemCost,paintCost,uploadCost;
 static void *engine,*engineVGui,*entities,*surface,*filesystem;
-static char mapName[240],navPath[256];static void* navFile;static unsigned readAt,lastMapCheck,lastFrame,lastRead;static long long lastFrameClock;
+static char mapName[240],navPath[256];static void* navFile;static unsigned readAt,lastMapCheck,lastFrame,lastRead;
 static bool inSession,liveFrame,textureDirty,firstFrameReported;static int texture;static unsigned font,lastDependencyAttempt;static int fontSize,lastScreenW,lastScreenH;
 static const WCHAR* navStatus=L"等待地图";
 static const WCHAR* LocalizedLoadStatus(){
@@ -292,9 +292,9 @@ static void Draw(bool showMap,bool showWorld){performance::Measure timing(paintC
     int targetFont=layout.font;if(!font)font=VCall<unsigned(__thiscall*)(void*)>(surface,63)(surface);
     if(font&&fontSize!=targetFont){if(VCall<bool(__thiscall*)(void*,unsigned,const char*,int,int,int,int,int,int,int)>(surface,64)(surface,font,"Microsoft YaHei",targetFont,500,0,0,0x90,0,0xffff))fontSize=targetFont;}
     // The disc texture carries its own rim; opacity is applied exactly once.
-    if(!texture||!VCall<bool(__thiscall*)(void*,int)>(surface,32)(surface,texture)){texture=VCall<int(__thiscall*)(void*,bool)>(surface,34)(surface,true);textureDirty=true;}
-    if(texture){if(textureDirty){performance::Measure uploadTiming(uploadCost);if(SkeetoNavUploadRgba(texture,(const unsigned char*)raster.rgba,minimap::Pixels,minimap::Pixels)){textureDirty=false;++textureUploads;}}
-        VCall<void(__thiscall*)(void*,int,int,int,int)>(surface,11)(surface,255,255,255,settings.opacity);VCall<void(__thiscall*)(void*,int)>(surface,29)(surface,texture);VCall<void(__thiscall*)(void*,int,int,int,int)>(surface,31)(surface,x,y,x+size,y+size);}
+    if(!texture){const int id=VCall<int(__thiscall*)(void*,bool)>(surface,34)(surface,true);texture=id>0?id:0;textureDirty=true;}
+    if(texture){if(textureDirty){performance::Measure uploadTiming(uploadCost);if(SkeetoNavUploadRgba(texture,(const unsigned char*)raster.rgba,minimap::Pixels,minimap::Pixels)){textureDirty=false;++textureUploads;}else texture=0;}
+        if(texture){VCall<void(__thiscall*)(void*,int,int,int,int)>(surface,11)(surface,255,255,255,settings.opacity);VCall<void(__thiscall*)(void*,int)>(surface,29)(surface,texture);VCall<void(__thiscall*)(void*,int,int,int,int)>(surface,31)(surface,x,y,x+size,y+size);}}
     if(!supplyFont)supplyFont=VCall<unsigned(__thiscall*)(void*)>(surface,63)(surface);
     int supplyPixels=minimap::SupplyFont(targetFont);
     if(supplyFont&&supplyFontSize!=supplyPixels){if(VCall<bool(__thiscall*)(void*,unsigned,const char*,int,int,int,int,int,int,int)>(surface,64)(surface,supplyFont,"Microsoft YaHei",supplyPixels,600,0,0,0x90,0,0xffff))supplyFontSize=supplyPixels;}
@@ -379,7 +379,7 @@ static void ResetMinimapPresentation(){
     if(texture&&MethodOK(surface,33))VCall<void(__thiscall*)(void*,int)>(surface,33)(surface,texture);
     texture=0;textureDirty=true;labelRaster=labelOverlay=~0u;
     itemCursor=0;itemSnapshot.count=0;lastItemPoll=0;
-    sceneValid=terrainValid=false;liveFrame=false;lastFrame=0;lastFrameClock=0;
+    sceneValid=terrainValid=false;liveFrame=false;lastFrame=0;
 }
 namespace skeeto_nav {
 bool PresentationActive(){return settings.enabled!=0||(settings.navigation!=0&&settings.worldNavigation!=0)||RadarEnabled();}
@@ -401,7 +401,7 @@ void SetProgressEnabled(bool enabled){
     if(progressEnabled==enabled)return;
     progressEnabled=enabled;navigator.measureLength=enabled&&!progressRoundEnded;ResetProgress();
     // Enabling on an already cached route must initialize its length once.
-    navigator.routeSource=nav::Invalid;lastFrame=0;lastFrameClock=0;
+    navigator.routeSource=nav::Invalid;lastFrame=0;
     if(enabled&&navDeferred&&inSession)Reload();
     else if(!enabled&&!Active())ResetSession();
 }
@@ -492,7 +492,7 @@ void Set(int index,int value){if(index<0||index>=kSettingCount)return;value=Limi
     if(index==8&&!value){if(!progressEnabled)navigator.Clear();worldOverlay.Clear();}
     if((index==8||index==controls::WorldIndex)&&!Active()){ResetSession();return;}
     if(index==9){if(navigator.prepared)navigator.Select(value);}
-    else if(index!=controls::WorldHudIndex&&(index<controls::WorldArrowColorIndex||index>controls::WorldHudYIndex)){sceneValid=terrainValid=false;itemCursor=0;lastItemPoll=lastRoutePoll=lastFrame=0;lastFrameClock=0;}}
+    else if(index!=controls::WorldHudIndex&&(index<controls::WorldArrowColorIndex||index>controls::WorldHudYIndex)){sceneValid=terrainValid=false;itemCursor=0;lastItemPoll=lastRoutePoll=lastFrame=0;}}
 void Reload(){if(!Active())return;char name[240]{};CopyText(name,sizeof name,mapName);StartMap(name);}
 void InvalidateFonts(){fontSize=supplyFontSize=worldFontSize=0;supplyradar::InvalidateFonts();}
 void Shutdown(){ResetSession();supplyradar::ReleaseArtwork();supplyradar::UnloadFonts();supplyradar::options::values[0]=0;settings.enabled=0;ready=false;}
@@ -511,7 +511,7 @@ void SetPaused(bool paused){pausedByUser=paused;}
 void Pump(bool inGame,bool gameUiVisible,bool menuVisible){
     const int boundary=progressBoundary.exchange(0,std::memory_order_acq_rel);
     if(boundary){ResetProgress();progressRoundEnded=boundary==2;
-        navigator.measureLength=progressEnabled&&!progressRoundEnded;navigator.routeSource=nav::Invalid;lastFrame=0;lastFrameClock=0;}
+        navigator.measureLength=progressEnabled&&!progressRoundEnded;navigator.routeSource=nav::Invalid;lastFrame=0;}
     if(!Active()){if(inSession||navFile||mesh.count)ResetSession();return;}
     menuShown=menuVisible;uiShown=gameUiVisible;
     if(!inGame){if(inSession)ResetSession();return;}
@@ -528,7 +528,7 @@ void Pump(bool inGame,bool gameUiVisible,bool menuVisible){
         if(result==nav::ParseJob::Result::Ready||result==nav::ParseJob::Result::Failed){
             navStatus=result==nav::ParseJob::Result::Ready?L"通路":L"导航不兼容";
             loading.Clear();++meshSerial;navigator.Clear();floorTracker.Reset();
-            sceneValid=terrainValid=false;lastFrame=0;lastFrameClock=0;
+            sceneValid=terrainValid=false;lastFrame=0;
         }
     }
     BugStep();
@@ -545,7 +545,7 @@ void Pump(bool inGame,bool gameUiVisible,bool menuVisible){
             else changed=mapEditor.Step(now,w,h,settings.size,settings.posX,settings.posY,fastStep);}
         if(changed){if(!worldHudEditing)sceneValid=terrainValid=false;settingsChanged=true;}}
     const bool presentation=settings.enabled||(settings.navigation&&settings.worldNavigation);
-    if(presentation||(progressEnabled&&!progressRoundEnded)){const bool due=!presentation?now-lastFrame>=500:settings.refreshFps>=controls::RefreshFollow||!lastFrameClock||performance::Microseconds(performance::Now()-lastFrameClock)>=(1000000u+(unsigned)settings.refreshFps-1u)/(unsigned)settings.refreshFps;if(due){lastFrame=now;lastFrameClock=performance::Now();UpdateFrame();}}
+    if((presentation||(progressEnabled&&!progressRoundEnded))&&now-lastFrame>=unsigned(presentation?(1000+settings.refreshFps-1)/settings.refreshFps:500)){lastFrame=now;UpdateFrame();}
 }
 void Paint(bool showMap,bool showWorld,bool showRadar){showMap=showMap&&settings.enabled;showWorld=(showWorld||worldHudEditing)&&settings.navigation&&settings.worldNavigation;if(Active()&&liveFrame&&ready&&!uiShown&&(showMap||showWorld))Draw(showMap,showWorld);if(showRadar&&RadarEnabled()&&supplyradar::live&&ready&&!uiShown)supplyradar::Draw();}
 bool DrawSupplyIcon(unsigned label,int x,int y,int w,int h){

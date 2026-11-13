@@ -476,7 +476,7 @@ void TeamHudFillSlot(TeamHudSlot& s, void* e, int entIdx, int faceCh, bool isLoc
 void TeamHudReadWepsCached(void* e, int entIdx, TeamHudSlot* s, DWORD maxAgeMs);
 bool TeamHudFullReady(bool menuPreview);
 int SktAnimatingStudioHdrOff();
-int TeamHudBindFace(int ch, bool incap, int entIdx = 0);
+int TeamHudBindFace(int ch, bool incap);
 COLORREF TeamHudCharColor(int ch);
 COLORREF TeamHudCapColor(int cap);
 void MapHudStem(const char* map, char* out, int outN);
