@@ -454,7 +454,9 @@ static int DisplayDistance(unsigned id,Vec& point,unsigned now){
 // work is cached in rowTextCaches and rebuilt only when a value changes.
 static void DrawCards(){
     int w=0,h=0;VCall<void(__thiscall*)(void*,int&,int&)>(engine,5)(engine,w,h);if(w<640||h<400||w>16384||h>16384)return;
+    bool autoSpecial=false;for(unsigned id=items::SpecialFirst;id<IconCount&&!autoSpecial;++id)autoSpecial=options::EnabledId(id)&&!layout::items[id].custom;
     layout::width=w;layout::height=h;float s=b4b_hud::Scale(w,h);
+    const auto extraSupplyRow=autoSpecial?b4b_hud::ExtraSupplyRow(w,h,s):b4b_hud::SupplyRow{};
     // A mode switch clears the engine's glyph mapping: GetFontTall (slot 66) then reads 0.
     if((lastScreenW&&(w!=lastScreenW||h!=lastScreenH))||(font&&VCall<int(__thiscall*)(void*,unsigned)>(surface,66)(surface,font)==0))ResetFonts();
     lastScreenW=w;lastScreenH=h;
@@ -468,29 +470,26 @@ static void DrawCards(){
     if(++renderFrame==0){renderFrame=1;for(auto& entry:panelTextures)entry.used=entry.checked=0;}
     frameArrowPrepared=false;frameArrowTexture=0;renderStateActive=true;uploadsLeft=3;
     unsigned now=GetTickCount();
-    struct PreparedRow {bool visible=false;layout::Box box;int mx=0,my=0,iconLane=0,iconWidth=0,iconHeight=0,group=0,column=0,row=0;float sy=0,unit=0;direction_math::Result direction{};};
+    struct PreparedRow {bool visible=false,extraSupply=false;layout::Box box;int mx=0,my=0,iconWidth=0,iconHeight=0,group=0,column=0,row=0;float unit=0;direction_math::Result direction{};};
     PreparedRow prepared[IconCount]{};
     int columnExtra[2][b4b_hud::SmallColumns]{},rowExtra[2][18]{};
     for(unsigned id:hudOrder){
         if(!DisplayItem(id)){displayedDistances[id]={};directionStates[id].Reset();layout::visualBoxes[id]={};layout::panelBoxes[id]={};continue;}
         auto automatic=b4b_hud::Cell(id,h,s);if(!automatic.w||!automatic.h)continue;
+        bool extraSupply=extraSupplyRow.y&&items::IsSpecial(id)&&!layout::items[id].custom;
+        if(extraSupply){automatic.x=extraSupplyRow.x[id-items::SpecialFirst];automatic.y=extraSupplyRow.y;}
         auto box=layout::Place(id,automatic);bool weapon=id>=11&&id<32;
         float sx=float(box.w)/(weapon?b4b_hud::WeaponPitch:b4b_hud::SmallPitch),sy=float(box.h)/b4b_hud::RowPitch;
         float unit=sx<sy?sx:sy;int mx=int(b4b_hud::Margin*sx+.5f),my=int(b4b_hud::Margin*sy+.5f);
         int arrowMargin=rectangular_hud::Margin(classic_hud::ArrowHalf*unit,b4b_hud::ArrowGap*unit);
         if(mx<arrowMargin)mx=arrowMargin;if(my<arrowMargin)my=arrowMargin;
-        layout::Box card{box.x+mx,box.y+my,int(classic_hud::PanelWidth(id)*sx+.5f),int(15*sy+.5f)};
+        layout::Box card{box.x+mx,box.y+my,int(classic_hud::PanelWidth(id)*sx+.5f),int(classic_hud::PanelHeight*sy+.5f)};
         int countWidth=Limit(int((weapon?12.f:8.f)*sx+.5f),1,card.w/3),heightWidth=Limit(int(12.f*sx+.5f),1,card.w/3);
         if(id==34)countWidth=heightWidth=Limit(int(14.f*sx+.5f),1,card.w/2-1);
         int baseIconWidth=0,baseIconHeight=0;classic_hud::IconSize(id,sx,sy,baseIconWidth,baseIconHeight);
         // Resolve the final aspect fit before centring, avoiding two separate
         // integer roundings that moved small icons up and left by one pixel.
         if(id!=9){auto art=ArtworkMeta(id);if(unsigned(art.sourceWidth)*unsigned(baseIconHeight)>unsigned(art.sourceHeight)*unsigned(baseIconWidth))baseIconHeight=Limit(int(unsigned(baseIconWidth)*art.sourceHeight/art.sourceWidth),1,baseIconHeight);else baseIconWidth=Limit(int(unsigned(baseIconHeight)*art.sourceWidth/art.sourceHeight),1,baseIconWidth);}
-        int iconLane=0;
-        if(items::IsSpecial(id)){
-            iconLane=int(b4b_hud::SpecialIconLane*sx+.5f);
-            if(iconLane<baseIconWidth+2)iconLane=baseIconWidth+2;
-        }
         Vec point{};if(!displayedDistances[id].valid)directionStates[id].Reset();
         int meters=layout::active?0:DisplayDistance(id,point,now);
         auto result=layout::active?direction_math::Result{0,-1,true,1}:directionStates[id].Update(directionBasis,viewOrigin,point,DisplayKey(id));
@@ -498,13 +497,13 @@ static void DrawCards(){
         auto& words=PrepareRowText(id,meters,DisplayCount(rows[id]),!layout::active&&rows[id].unlimited,result.height,high,card.w,card.h,countWidth,heightWidth,Limit(int(classic_hud::DistanceFont*sy+.5f),7,42),Limit(int(4.5f*sy+.5f),7,18));
         // Extremely small custom cells have a readable minimum. Expand the
         // complete cell (including arrow padding), then keep it on screen.
-        int panelWidth=words.cardWidth+iconLane;
+        int panelWidth=words.cardWidth;
         box.w+=panelWidth-card.w;box.h+=words.cardHeight-card.h;
         if(box.w<panelWidth+2*mx)box.w=panelWidth+2*mx;
         if(box.h<words.cardHeight+2*my)box.h=words.cardHeight+2*my;
-        auto& item=prepared[id];item.visible=true;item.box=box;item.mx=mx;item.my=my;item.iconLane=iconLane;item.iconWidth=baseIconWidth;item.iconHeight=baseIconHeight;item.sy=sy;item.unit=unit;item.direction=result;
+        auto& item=prepared[id];item.visible=true;item.extraSupply=extraSupply;item.box=box;item.mx=mx;item.my=my;item.iconWidth=baseIconWidth;item.iconHeight=baseIconHeight;item.unit=unit;item.direction=result;
         b4b_hud::GridPosition(id,item.group,item.column,item.row);
-        if(!layout::items[id].custom){
+        if(!layout::items[id].custom&&!extraSupply){
             int extra=box.w-automatic.w;if(extra>columnExtra[item.group][item.column])columnExtra[item.group][item.column]=extra;
             extra=box.h-automatic.h;if(extra>rowExtra[item.group][item.row])rowExtra[item.group][item.row]=extra;
         }
@@ -512,26 +511,44 @@ static void DrawCards(){
     // Only enlarged automatic cells affect their grid neighbours. Custom
     // coordinates remain controlled by the user. Normal values keep the
     // original B4B positions, including the space reserved for arrows.
+    bool wrapSpecial=false;int wrapY=0,wrapWidth=0,wrapHeight=0;
+    if(autoSpecial&&!extraSupplyRow.y){
+        const auto first=b4b_hud::Cell(items::SpecialFirst,h,s);
+        int right=first.x+first.w;wrapY=first.y+4*first.h;
+        for(int i=0;i<b4b_hud::SmallColumns;++i){right+=columnExtra[0][i];wrapY+=rowExtra[0][i];}
+        // Keep the old grid fixed. Wrap just the added column if it would be
+        // clamped onto a neighbour on an unusually narrow viewport.
+        wrapSpecial=right>w-4;
+        if(wrapSpecial){
+            wrapWidth=first.w+columnExtra[0][b4b_hud::SmallColumns-1];wrapHeight=first.h;
+            for(unsigned id=items::SpecialFirst;id<IconCount;++id){
+                const auto& item=prepared[id];if(item.visible&&!layout::items[id].custom&&item.box.h>wrapHeight)wrapHeight=item.box.h;
+            }
+        }
+    }
     for(unsigned id:hudOrder){
         const auto& item=prepared[id];if(!item.visible)continue;
         auto box=item.box;auto& words=rowTextCaches[options::DigitStyle()][id];
-        if(!layout::items[id].custom){
-            for(int c=0;c<item.column;++c)box.x+=columnExtra[item.group][c];
-            if(item.group==1){for(int r=0;r<=item.row;++r)box.y-=rowExtra[1][r];}
-            else{for(int r=0;r<item.row;++r)box.y+=rowExtra[0][r];}
+        if(!layout::items[id].custom&&!item.extraSupply){
+            if(wrapSpecial&&items::IsSpecial(id)){
+                const unsigned slot=id-items::SpecialFirst;
+                box.x=int(6.f*s+.5f)+int(slot%2)*wrapWidth;box.y=wrapY+int(slot/2)*wrapHeight;
+            }else{
+                for(int c=0;c<item.column;++c)box.x+=columnExtra[item.group][c];
+                if(item.group==1){for(int r=0;r<=item.row;++r)box.y-=rowExtra[1][r];}
+                else{for(int r=0;r<item.row;++r)box.y+=rowExtra[0][r];}
+            }
         }
         box.x=Limit(box.x,4,w-box.w-4);box.y=Limit(box.y,2,h-box.h-4);
-        layout::Box card{box.x+item.mx,box.y+item.my,words.cardWidth+item.iconLane,words.cardHeight};layout::boxes[id]=box;
+        layout::Box card{box.x+item.mx,box.y+item.my,words.cardWidth,words.cardHeight};layout::boxes[id]=box;
         auto palette=ArtworkMeta(id);
         Icon(id+IconCount,card.x,card.y,card.w,card.h);
         // The icon keeps its size as text values change. A wider exceptional
         // string reallocates text lanes without re-uploading the icon.
-        int iconWidth=item.iconLane?item.iconLane:card.w;
-        Icon(id,card.x+(iconWidth-item.iconWidth)/2,card.y+(card.h-item.iconHeight)/2,item.iconWidth,item.iconHeight);
-        int textOrigin=card.x+item.iconLane;
-        int textX=textOrigin+words.drawCountWidth,textWidth=words.cardWidth-words.drawCountWidth-words.drawHeightWidth;
+        Icon(id,card.x+(card.w-item.iconWidth)/2,card.y+(card.h-item.iconHeight)/2,item.iconWidth,item.iconHeight);
+        int textX=card.x+words.drawCountWidth,textWidth=card.w-words.drawCountWidth-words.drawHeightWidth;
         DrawCenteredText({textX,card.y,textWidth,card.h},words.distance,classic_hud::DistanceRed,classic_hud::DistanceGreen,classic_hud::DistanceBlue,(id==1||id==3)?1:0,id==1?1:id==34?int(3.2f*item.unit+.5f):0);
-        if(words.showCount)DrawCenteredText({textOrigin,card.y,words.drawCountWidth,card.h},words.quantity,classic_hud::SideRed,classic_hud::SideGreen,classic_hud::SideBlue);
+        if(words.showCount)DrawCenteredText({card.x,card.y,words.drawCountWidth,card.h},words.quantity,classic_hud::SideRed,classic_hud::SideGreen,classic_hud::SideBlue);
         if(words.showHeight)DrawCenteredText({card.x+card.w-words.drawHeightWidth,card.y,words.drawHeightWidth,card.h},words.elevation,classic_hud::SideRed,classic_hud::SideGreen,classic_hud::SideBlue);
         if(options::values[options::Direction])DirectionArrow(card,item.unit,item.direction,palette);
         layout::visualBoxes[id]=box;
@@ -540,6 +557,7 @@ static void DrawCards(){
     if(layout::active){EditorGuides(w,h);EditorFooter(w,h);}
     VCall<void(__thiscall*)(void*)>(surface,24)(surface);VCall<void(__thiscall*)(void*,float)>(surface,105)(surface,alpha);
 }
+
 // Paint-thread entry (once per frame). Every skip is cheap: flags and one entity-identity check.
 static void Draw(){
     if(!radarReady||!pixels)return;

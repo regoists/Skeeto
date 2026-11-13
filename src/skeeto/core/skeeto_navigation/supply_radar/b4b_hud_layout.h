@@ -1,12 +1,13 @@
 #pragma once
 #include "items.h"
 #include "layout.h"
+#include "classic_hud_style.h"
 namespace b4b_hud {
 // Keep the provided VPK's groups and bottom-to-top weapon order. Reserve six
 // HUD units around each plate for the single rotating arrow. Missing weapons
 // use the existing icon system and continue after the original weapon rows.
 constexpr int SmallWidth=44,WeaponWidth=84,PlateHeight=16,Margin=6;
-constexpr int SmallColumns=4,SpecialIconLane=17;
+constexpr int SmallColumns=4;
 constexpr int SmallPitch=SmallWidth+2*Margin,WeaponPitch=WeaponWidth+2*Margin;
 constexpr int RowPitch=PlateHeight+2*Margin,BottomPadding=99;
 constexpr float ArrowHalf=1.8f,ArrowGap=.4f;
@@ -61,5 +62,34 @@ inline layout::Box Cell(unsigned id,int screenHeight,float scale){
     int anchor=int(float(BottomPadding+(weapon?4*RowPitch:0))*scale+.5f);
     int bottom=anchor+(weapon?row+1:4-row)*pitchY;
     return {x,screenHeight-bottom,pitchX,pitchY};
+}
+struct SupplyRow {int x[SmallColumns],y;};
+// An existing four-column supply grid can take one more row. Use the current
+// saved positions, and leave any explicitly placed new item alone.
+inline SupplyRow ExtraSupplyRow(int width,int height,float scale){
+    static_assert(items::SpecialCount==SmallColumns,"Special supply row size");
+    using items::Label;
+    const auto& placed=layout::items;
+    auto at=[&](Label id)->const layout::Item&{return placed[unsigned(id)];};
+    auto pinned=[](const layout::Item& item){return item.custom&&item.scale==100;};
+    const auto& first=at(Label::Medical);const auto& second=at(Label::Molotov);const auto& third=at(Label::Laser);
+    int step=third.y-second.y;
+    if(!pinned(first)||!pinned(second)||!pinned(third)||first.x!=second.x||first.y>=second.y||step<=0||third.y+step>10000)return {};
+    constexpr Label columns[]={Label::Medical,Label::Defibrillator,Label::Pills,Label::Adrenaline};
+    constexpr Label utilities[]={Label::Laser,Label::GasCan,Label::Fireworks};
+    for(unsigned i=0;i<3;++i){const auto& item=at(utilities[i]);if(!pinned(item)||item.y!=third.y||item.x!=at(columns[i]).x)return {};}
+    const auto cell=Cell(items::SpecialFirst,height,scale);
+    // Allow the same one-pixel overlap that rounding can give the old grid.
+    int minWidth=int(classic_hud::PanelWidth(items::SpecialFirst)*cell.w/SmallPitch+.5f)-1;
+    int minHeight=int(classic_hud::PanelHeight*cell.h/RowPitch+.5f);
+    SupplyRow row{};
+    row.y=layout::Position(height,cell.h,third.y+step);
+    if(row.y-layout::Position(height,cell.h,third.y)<minHeight)return {};
+    for(unsigned i=0;i<SmallColumns;++i){
+        const auto& item=at(columns[i]);if(!pinned(item)||item.y!=first.y)return {};
+        row.x[i]=layout::Position(width,cell.w,item.x);
+        if(i&&row.x[i]-row.x[i-1]<minWidth)return {};
+    }
+    return row;
 }
 }

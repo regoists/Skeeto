@@ -2,7 +2,7 @@
 #include "items.h"
 #include "original_hud_layout.h"
 namespace classic_hud {
-constexpr float DistanceFont=9.f,ArrowHalf=2.1f;
+constexpr float DistanceFont=9.f,ArrowHalf=2.1f,PanelHeight=15.f;
 constexpr int DistanceRed=225,DistanceGreen=233,DistanceBlue=237;
 constexpr int SideRed=190,SideGreen=205,SideBlue=212;
 // 1.2.3's visible panel was [-5,33] for supplies and [-5,62] for
@@ -10,7 +10,7 @@ constexpr int SideRed=190,SideGreen=205,SideBlue=212;
 // and arrow margin; restore the visible plate and icon sizes inside them.
 inline float PanelWidth(unsigned id){return id>=11&&id<32?67.f:38.f;}
 inline original_hud::Meta IconPreset(unsigned id){
-    // Gas cans, fireworks and specials use the medical item size, not the weapon size.
+    // Gas cans and fireworks use the medical item size, not the weapon size.
     if(id>=32)return original_hud::meta[1];
     auto m=original_hud::meta[id];
     if(!m.hasPanel){m.wide=72;m.tall=18;}
