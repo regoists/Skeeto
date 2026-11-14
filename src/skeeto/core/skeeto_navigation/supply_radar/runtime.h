@@ -735,10 +735,11 @@ static int CachedExternalTexture(unsigned label,int w,int h){
     if(!uploadsLeft)return 0;
     int tw=Limit(w,1,512),th=Limit(h,1,256);
     t=VCall<int(__thiscall*)(void*,bool)>(surface,34)(surface,true);
+    --uploadsLeft;
     if(!t)return 0;
     if(!raster_filter::Resize(source,m.sourceWidth,m.sourceHeight,resizedPixels,tw,th)){ReleaseTexture(t);return 0;}
     if(!SkeetoNavUploadRgba(t,resizedPixels,tw,th)){ReleaseTexture(t);return 0;}
-    --uploadsLeft;L4N_OBSERVE(++textureUploads);externalWidths[label]=tw;externalHeights[label]=th;
+    L4N_OBSERVE(++textureUploads);externalWidths[label]=tw;externalHeights[label]=th;
     return t;
 }
 static bool DrawExternalIcon(unsigned label,int x,int y,int w,int h){
@@ -751,6 +752,46 @@ static bool DrawExternalIcon(unsigned label,int x,int y,int w,int h){
     // First upload size is sticky; draw stretches. Scale edits must not reupload.
     int texture=CachedExternalTexture(label,w,h);
     if(!texture)return false;
+    Color(255,255,255,255);
+    VCall<void(__thiscall*)(void*,int)>(surface,29)(surface,texture);
+    VCall<void(__thiscall*)(void*,int,int,int,int)>(surface,31)(surface,x,y,x+w,y+h);
+    return true;
+}
+bool MinimapIconSize(unsigned label,int mapSize,int& outW,int& outH){
+    if(label==0||label>=IconCount||mapSize<1)return false;
+    const bool throwable=label==5||label==6||label==7;
+    int targetH=Limit(mapSize/(throwable?18:22),throwable?14:11,throwable?20:16),maxW=Limit(mapSize/7,32,52);
+    int wide=0,tall=0;
+    classic_hud::IconSize(label,1.f,1.f,wide,tall);
+    if(wide<1||tall<1)return false;
+    if(label!=9){
+        auto art=ArtworkMeta(label);
+        if(art.sourceWidth>0&&art.sourceHeight>0){
+            if(unsigned(art.sourceWidth)*unsigned(tall)>unsigned(art.sourceHeight)*unsigned(wide))
+                tall=Limit(int(unsigned(wide)*art.sourceHeight/art.sourceWidth),1,tall);
+            else
+                wide=Limit(int(unsigned(tall)*art.sourceWidth/art.sourceHeight),1,wide);
+        }
+    }
+    outW=Limit(int(unsigned(wide)*targetH/tall),1,512);
+    outH=targetH;
+    if(outW>maxW){outH=Limit(int(unsigned(outH)*maxW/outW),1,targetH);outW=maxW;}
+    return true;
+}
+static void WarmArtwork(){ArtworkStep();}
+static bool DrawMinimapIcon(unsigned label,int x,int y,int w,int h,unsigned& uploadBudget){
+    if(!surface||label==0||label>=IconCount||w<1||h<1)return false;
+    int texture=0;
+    if(textures[label]&&TextureLive(textures[label]))texture=textures[label];
+    else if(externalTextures[label]&&TextureLive(externalTextures[label]))texture=externalTextures[label];
+    if(!texture){
+        if(!uploadBudget)return false;
+        if(!items::IsSpecial(label)&&!pixels)return false;
+        if(!uploadsLeft)uploadsLeft=1;
+        texture=CachedExternalTexture(label,w,h);
+        --uploadBudget;
+        if(!texture)return false;
+    }
     Color(255,255,255,255);
     VCall<void(__thiscall*)(void*,int)>(surface,29)(surface,texture);
     VCall<void(__thiscall*)(void*,int,int,int,int)>(surface,31)(surface,x,y,x+w,y+h);

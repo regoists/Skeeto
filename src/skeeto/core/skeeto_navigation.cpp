@@ -307,25 +307,21 @@ static void Draw(bool showMap,bool showWorld){performance::Measure timing(paintC
     if(settings.items)for(int i=0;i<labelLayout.leaderCount;++i){const auto& b=labelLayout.leaders[i];
         Rect(x+b.x,y+b.y,b.w,b.h,145,167,179,b.w==3&&b.h==3?205:135);
     }
-    if(settings.items)for(int i=0;i<labelLayout.count;++i){const auto& l=labelLayout.labels[i];const auto& b=l.box;
-        unsigned color=labelLayout.metrics.Get(l.label).color;
-        // Flat tag: rounded by one pixel, type colour as a slim leading bar.
-        Rect(x+b.x+1,y+b.y,b.w-2,b.h,8,15,20,232);
-        Rect(x+b.x,y+b.y+1,1,b.h-2,8,15,20,232);
-        Rect(x+b.x+b.w-1,y+b.y+1,1,b.h-2,8,15,20,232);
-        Rect(x+b.x+1,y+b.y+3,2,b.h-6,(color>>16)&255,(color>>8)&255,color&255,215);
-        Text(x+b.x+5,y+b.y+1,items::Text(l.label),color,l.kind==items::Kind::Weapon?font:supplyFont);
+    if(settings.items){
+        unsigned iconUploads=1;
+        for(int i=0;i<labelLayout.count;++i){const auto& l=labelLayout.labels[i];const auto& b=l.box;
+            const int ix=x+b.x,iy=y+b.y,iw=b.w,ih=b.h;
+            if(iw>0&&ih>0&&supplyradar::DrawMinimapIcon(unsigned(l.label),ix,iy,iw,ih,iconUploads))continue;
+            unsigned color=labelLayout.metrics.Get(l.label).color;
+            TextFit(ix,iy,items::Text(l.label),iw,iw>12?iw-4:12,color);
+        }
     }
     if(const WCHAR* notice=MapNotice()){
-        // Only states the disc cannot show itself; one line, measured on change.
         static const WCHAR* noticeSource=nullptr;static int noticeFont=0,noticeLimit=0,noticeWidth=0;static WCHAR noticeText[64]{};
         const int limit=size*(settings.shape?4:7)/(settings.shape?5:10);
         if(noticeSource!=notice||noticeFont!=targetFont||noticeLimit!=limit){noticeSource=notice;noticeFont=targetFont;noticeLimit=limit;
             minimap::FitText(noticeText,64,notice,limit,targetFont);noticeWidth=SurfTextWFont(font,noticeText);}
-        const int chipH=targetFont+8,chipW=noticeWidth+26,chipX=x+(size-chipW)/2,chipY=y+size-chipH-size/(settings.shape?24:9);
-        Rect(chipX+1,chipY,chipW-2,chipH,8,15,20,238);Rect(chipX,chipY+1,chipW,chipH-2,8,15,20,238);
-        Rect(chipX+9,chipY+chipH/2-2,4,4,(noticeColor>>16)&255,(noticeColor>>8)&255,noticeColor&255,255);
-        Text(chipX+18,chipY+4,noticeText,noticeColor);
+        Text(x+(size-noticeWidth)/2,y+size-targetFont-size/(settings.shape?24:9),noticeText,noticeColor);
     }
     if(mapEditor.active&&!worldHudEditing){
         int top=y,bottom=y+size;
@@ -441,6 +437,8 @@ unsigned ProgressStats(char* out,unsigned capacity){
 }
 
 bool RadarEnabled(){return supplyradar::options::values[0]!=0;}
+static bool MinimapIconsWanted(){return settings.enabled&&settings.items;}
+static void ReleaseArtworkIfUnused(){if(!RadarEnabled()&&!MinimapIconsWanted())supplyradar::ReleaseArtwork();}
 int RadarGet(int index){return index>=0&&index<kRadarSettingCount?supplyradar::options::values[index]:0;}
 const char* RadarKey(int index){return supplyradar::options::Key(index);}
 int RadarMinimum(int index){return supplyradar::options::Minimum(index);}
@@ -448,7 +446,7 @@ int RadarMaximum(int index){return supplyradar::options::Maximum(index);}
 void RadarSet(int index,int value){
     if(index<0||index>=kRadarSettingCount)return;int old=RadarGet(index);supplyradar::options::Set(index,value);if(old==RadarGet(index))return;
     if(index==supplyradar::options::Enable){
-        if(!RadarEnabled()){supplyradar::ClearMap();supplyradar::ReleaseArtwork();supplyradar::mapPending=false;if(!Active())ResetSession();}
+        if(!RadarEnabled()){supplyradar::ClearMap();ReleaseArtworkIfUnused();supplyradar::mapPending=false;if(!Active())ResetSession();}
         else supplyradar::mapPending=true;
     }
     else if(index>=supplyradar::options::LayoutBase){supplyradar::EndEdit();supplyradar::SyncLayoutFromSettings();}
@@ -488,7 +486,8 @@ void ResetDefaults(){settings=controls::Settings{};}
 void Set(int index,int value){if(index<0||index>=kSettingCount)return;value=Limit(value,Minimum(index),Maximum(index));if(index==controls::RefreshIndex)value=10+5*((value-10+2)/5);int& slot=((int*)&settings)[index];if(slot==value)return;slot=value;
     // The map was loaded for the radar only; the minimap / world route now needs its NAV.
     if(navDeferred&&value&&inSession&&NavWanted()){Reload();return;}
-    if(index==0&&!value){if(Active())ResetMinimapPresentation();else ResetSession();return;}
+    if(index==0&&!value){if(Active())ResetMinimapPresentation();else ResetSession();ReleaseArtworkIfUnused();return;}
+    if(index==10&&!value)ReleaseArtworkIfUnused();
     if(index==8&&!value){if(!progressEnabled)navigator.Clear();worldOverlay.Clear();}
     if((index==8||index==controls::WorldIndex)&&!Active()){ResetSession();return;}
     if(index==9){if(navigator.prepared)navigator.Select(value);}
@@ -537,6 +536,7 @@ void Pump(bool inGame,bool gameUiVisible,bool menuVisible){
         do{navigator.PrepareStep(mesh,512);}while(navigator.preparePhase&&++batches<8&&performance::Microseconds(performance::Now()-began)<400);
     }
     if(RadarEnabled())supplyradar::Tick(now);
+    if(MinimapIconsWanted())supplyradar::WarmArtwork();
     const bool consoleVisible=MethodOK(engine,11)&&VCall<bool(__thiscall*)(void*)>(engine,11)(engine);
     if(gameUiVisible||consoleVisible){if(mapEditor.active)EndPositionEdit();liveFrame=false;progressPlayable=false;return;}
     if(menuShown&&mapEditor.active)EndPositionEdit();
