@@ -2899,6 +2899,7 @@ void TeamHudFillSlot(TeamHudSlot& s, void* e, int entIdx, int faceCh, bool isLoc
 		s.reviveByUserId = 0;
 		s.reviveByName[0] = 0;
 		s.hanging = false;
+		s.intensity = 0;
 	}
 	// During death/observer transitions weapon handles and model indices are the
 	// least stable part of the pawn. Keep names/HP/status, but omit gear reads.
