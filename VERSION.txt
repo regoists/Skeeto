@@ -1,5 +1,5 @@
-Skeeto 2.2.18
+Skeeto 2.2.19
 released=2026-11-14
-semver=2.2.18
+semver=2.2.19
 module=steam-bootstrap-transactional-update
-note=Withdraw L4N portraits and minimap follow-framerate; minimap default 10 / max 120; Steam avatar pending fix; greener scan default and four extra outline colors
+note=Discover localized addon asset packs without waiting for the addon-list spinner; director intensity clears on death; item radar 1.5.6 icon and number alignment

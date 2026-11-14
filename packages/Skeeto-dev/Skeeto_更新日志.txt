@@ -15,6 +15,20 @@ Then extract all contents of the new package into the game's root directory. If 
 
 项目开源链接：https://github.com/regoists/Skeeto
 
+## 2.2.19（2026-11-14）
+	Skeeto核心：
+修改：
+- 物资雷达 1.5.6：特殊物品图标与数字位置对齐；满烧/高爆的数量与距离已矫正。
+修复：
+- 预设素材包放到 left4dead2\addons\ 后，不必再等模组列表转圈才能被发现；加载结束后会有界补扫。已保存且文件名符合 skeeto_<id>.json 约定的风格可直接读取。若游戏把本地 addons 挂载推迟到返回主菜单，对局中不会强行重挂；文件名不符该约定的样式（如 ci_bfmix、overhaul、hj_kill_main）需等枚举，不能靠直读。
+- 导演压力 HUD：生还者死亡后强度归零。
+	Skeeto Core:
+Changed:
+- Item radar 1.5.6: special item icons and number positions aligned; incendiary/explosive pack counts and distances corrected.
+Fixed:
+- After placing the preset asset pack in left4dead2\addons\, it can be discovered without waiting for the addon-list spinner; a bounded rescan runs after loading finishes. Saved styles whose filenames follow the skeeto_<id>.json convention can be opened directly. If the game defers mounting local addons until you return to the main menu, it will not force a remount in-match; styles that do not follow that filename convention (such as ci_bfmix, overhaul, hj_kill_main) need enumeration and cannot use the direct-open path.
+- Director pressure HUD: intensity resets to zero after a survivor dies.
+
 ## 2.2.18（2026-11-14）
 	Skeeto核心：
 修改：
