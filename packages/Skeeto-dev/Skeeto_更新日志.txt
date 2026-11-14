@@ -18,16 +18,24 @@ Then extract all contents of the new package into the game's root directory. If 
 ## 2.2.19（2026-11-14）
 	Skeeto核心：
 修改：
-- 物资雷达 1.5.6：特殊物品图标与数字位置对齐；满烧/高爆的数量与距离已矫正。
+- 物资雷达特殊物品图标与数字位置对齐；满烧/高爆的数量与距离矫正。
+- 小地图物资标记改为雷达同款图标，保持原比例；枪械按高度适配，投掷物略放大。图标未就绪时回退为文字。
+- 小地图底部「未找到安全屋标记」改为无底纯文字。
+- 小地图物资一次最多跟踪 128 个；屏幕内标记画在真实投影位置，允许重叠，避免槽位避让造成方位偏移。
 修复：
-- 预设素材包放到 left4dead2\addons\ 后，不必再等模组列表转圈才能被发现；加载结束后会有界补扫。已保存且文件名符合 skeeto_<id>.json 约定的风格可直接读取。若游戏把本地 addons 挂载推迟到返回主菜单，对局中不会强行重挂；文件名不符该约定的样式（如 ci_bfmix、overhaul、hj_kill_main）需等枚举，不能靠直读。
-- 导演压力 HUD：生还者死亡后强度归零。
+- 导演压力 HUD：生还者死亡后强度不归零的问题。
+- 小地图物资图标上传失败时也会占用当帧上传名额，避免同一帧继续尝试后续标记。
+- 预设素材包放到 left4dead2\addons\ 后，需要等模组列表加载完才能被发现的问题；加载结束后会有界补扫。已保存且文件名符合 skeeto_<id>.json 约定的风格可直接读取。若游戏把本地 addons 挂载推迟到返回主菜单，对局中不会强行重挂；文件名不符该约定的样式（如 ci_bfmix、overhaul、hj_kill_main）需等枚举，不靠直读。
 	Skeeto Core:
 Changed:
-- Item radar 1.5.6: special item icons and number positions aligned; incendiary/explosive pack counts and distances corrected.
+- Item radar special item icons aligned with number positions; corrected the count and distance for full-burn/explosive.
+- Minimap supply markers now use the same icons as the item radar and keep their original aspect; guns are sized by height, throwables are slightly enlarged. Falls back to text when artwork is not ready.
+- The minimap bottom "Safehouse marker not found" notice is now plain text with no background.
+- Minimap supply tracking capacity is raised to 128; on-screen markers are drawn at their true projected positions, overlap is allowed, and slot avoidance no longer shifts bearing.
 Fixed:
-- After placing the preset asset pack in left4dead2\addons\, it can be discovered without waiting for the addon-list spinner; a bounded rescan runs after loading finishes. Saved styles whose filenames follow the skeeto_<id>.json convention can be opened directly. If the game defers mounting local addons until you return to the main menu, it will not force a remount in-match; styles that do not follow that filename convention (such as ci_bfmix, overhaul, hj_kill_main) need enumeration and cannot use the direct-open path.
-- Director pressure HUD: intensity resets to zero after a survivor dies.
+- Director pressure HUD: the issue where intensity does not reset to zero after a survivor dies.
+- A failed minimap supply-icon upload now consumes the per-frame upload slot, so later markers are not retried in the same frame.
+- The issue where the preset asset pack placed in left4dead2\addons\ cannot be discovered until the mod list finishes loading; there will be a boundary rescan after loading ends. Saved styles whose filenames conform to the skeeto_<id>.json convention can be read directly. If the game defers mounting local addons until returning to the main menu, it will not force remount during a match; styles whose filenames do not conform to this convention (such as ci_bfmix, overhaul, hj_kill_main) require waiting for enumeration, not relying on direct reading.
 
 ## 2.2.18（2026-11-14）
 	Skeeto核心：

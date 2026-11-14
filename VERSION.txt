@@ -2,4 +2,4 @@ Skeeto 2.2.19
 released=2026-11-14
 semver=2.2.19
 module=steam-bootstrap-transactional-update
-note=Discover localized addon asset packs without waiting for the addon-list spinner; director intensity clears on death; item radar 1.5.6 icon and number alignment
+note=Discover localized addon asset packs without waiting for the addon-list spinner; director intensity clears on death; item radar 1.5.6 icon and number alignment; minimap supply markers use radar icons at true projected positions
