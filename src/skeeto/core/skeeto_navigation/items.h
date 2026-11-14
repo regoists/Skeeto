@@ -3,7 +3,7 @@
 #include "../skeeto_ui_text.h"
 namespace items {
 enum class Kind {None,Medical,Defibrillator,Pills,Adrenaline,Molotov,PipeBomb,Bile,Ammo,Laser,Weapon};
-constexpr int Capacity=64;
+constexpr int Capacity=128;
 constexpr unsigned AllMask=(1u<<10)-1;
 constexpr unsigned Mask(Kind kind){return kind>Kind::None&&kind<=Kind::Weapon?1u<<(unsigned(kind)-1):0;}
 constexpr bool Enabled(Kind kind,unsigned mask){return (Mask(kind)&mask)!=0;}
