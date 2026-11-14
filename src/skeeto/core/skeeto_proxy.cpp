@@ -14405,25 +14405,31 @@ static int g_feedbackCatalogMountState = -1;
 static void FeedbackCatalogPump() {
 	const bool menu = g_engine && !g_paintConnected.load(std::memory_order_relaxed)
 		&& !g_paintInGame.load(std::memory_order_relaxed) && !g_paintLoading.load(std::memory_order_relaxed);
-	if (!g_optFeedbackWorkshopRecovery || !SkeetoFeaturesOn()) {
+	const bool ingameReady = g_paintInGame.load(std::memory_order_relaxed)
+		&& !g_paintLoading.load(std::memory_order_relaxed)
+		&& !g_mapEnterGameThreadResetPending.load(std::memory_order_acquire);
+
+	if (!SkeetoFeaturesOn()) {
 		if (g_feedbackCatalogRecoveryRunning) DlcCatalogRecoveryCancel();
 		g_feedbackCatalogRecoveryRunning = false;
 		g_feedbackCatalogRecoveryDone = false;
 		g_feedbackCatalogReadAt = 0;
 		g_feedbackCatalogMountState = -1;
-		// The existing ordinary menu catalog remains independent of this option.
-		if (!DlcEngineGlobTried() || DlcGetCatalog()->count <= 0 || (menu && DlcStyleLimitPending())) {
-			if (DlcEnsureCatalog(g_gameL4d2Dir, menu))
+		// Features off: menu may still list loose or already-mounted styles.
+		if (menu && (!DlcEngineGlobTried() || DlcGetCatalog()->count <= 0 || DlcStyleLimitPending())) {
+			if (DlcEnsureCatalog(g_gameL4d2Dir, true))
 				Log("catalog ready (Paint) styles=%d GAME=%d ms=%d", DlcGetCatalog()->count,
 					DlcLastEngineJsonCount(), DlcLastReloadMs());
+		} else if (!DlcEngineGlobTried() || DlcGetCatalog()->count <= 0) {
+			DlcEnsureCatalog(g_gameL4d2Dir, false);
 		}
 		return;
 	}
+
 	DlcEnsureCatalog(g_gameL4d2Dir, false);
-	if (g_feedbackCatalogRecoveryDone && !(menu && DlcStyleLimitPending())) return;
 	if (g_paintLoading.load(std::memory_order_relaxed)
 		|| g_mapEnterGameThreadResetPending.load(std::memory_order_acquire)
-		|| (!menu && !g_paintInGame.load(std::memory_order_relaxed))
+		|| (!menu && !ingameReady)
 		|| (!menu && DlcStyleLimitPending())) {
 		if (g_feedbackCatalogRecoveryRunning) DlcCatalogRecoveryCancel();
 		g_feedbackCatalogRecoveryRunning = false;
@@ -14431,31 +14437,55 @@ static void FeedbackCatalogPump() {
 		g_feedbackCatalogMountState = -1;
 		return;
 	}
+
 	const DWORD now = GetTickCount();
 	const bool sample = !g_feedbackCatalogReadAt || (LONG)(now - g_feedbackCatalogReadAt) >= 0;
-	if (sample || g_feedbackCatalogRecoveryRunning) {
-		const int previous = g_feedbackCatalogMountState;
+	if (sample) {
 		g_feedbackCatalogReadAt = now + 500u;
-		g_feedbackCatalogMountState = NativeAddonsLoadState();
-		// Native completion queues update_addon_paths. Require completion on two
-		// spaced samples so a second UI Paint in the same engine frame cannot
-		// enumerate the old paths before the queued command gets its turn.
-		if (previous != 0 && g_feedbackCatalogMountState == 0 && !g_feedbackCatalogRecoveryRunning) return;
+		DlcNoteGameSearchPath();
+		if (g_optFeedbackWorkshopRecovery) {
+			const int previous = g_feedbackCatalogMountState;
+			g_feedbackCatalogMountState = NativeAddonsLoadState();
+			// Extra workshop pass only. Local addons do not wait on IconAddons.
+			// Completion queues update_addon_paths; wait one spaced sample so
+			// this Paint cannot enumerate the pre-command search path.
+			if (previous != 0 && g_feedbackCatalogMountState == 0) {
+				if (g_feedbackCatalogRecoveryRunning) {
+					DlcCatalogRecoveryCancel();
+					g_feedbackCatalogRecoveryRunning = false;
+				}
+				DlcAllowEngineGlobAgain();
+				return;
+			}
+		}
 	}
-	if (g_feedbackCatalogMountState != 0) {
-		if (g_feedbackCatalogRecoveryRunning) DlcCatalogRecoveryCancel();
-		g_feedbackCatalogRecoveryRunning = false;
+
+	if (menu && !g_feedbackCatalogRecoveryRunning
+		&& (!DlcEngineGlobTried() || DlcStyleLimitPending())) {
+		if (DlcEnsureCatalog(g_gameL4d2Dir, true))
+			Log("catalog ready (Paint) styles=%d GAME=%d ms=%d", DlcGetCatalog()->count,
+				DlcLastEngineJsonCount(), DlcLastReloadMs());
+	}
+
+	const bool need = !DlcEngineGlobTried() || (menu && DlcStyleLimitPending());
+	if (!need && !g_feedbackCatalogRecoveryRunning) {
+		if (sample && DlcSelectedStyleMissing())
+			DlcOpenSelectedStyleFiles();
+		g_feedbackCatalogRecoveryDone = true;
 		return;
 	}
+
 	if (!g_feedbackCatalogRecoveryRunning) {
 		if (!sample) return;
-		if (!DlcEngineCatalogReady()) {
-			g_feedbackCatalogMountState = -1;
-			return;
-		}
+		if (!DlcEngineCatalogReady()) return;
 		if (!DlcCatalogRecoveryBegin()) {
-			g_feedbackCatalogRecoveryDone = true;
-			Log("catalog workshop recovery could not open GAME enumeration; selections retained");
+			const int opened = DlcOpenSelectedStyleFiles();
+			if (opened > 0 || DlcEngineGlobTried())
+				g_feedbackCatalogRecoveryDone = true;
+			if (opened > 0 && g_paintInGame.load(std::memory_order_relaxed))
+				PrecacheSelectedParticles("catalog-game-open");
+			Log("catalog GAME enumeration unavailable; open=%d styles=%d; selections retained",
+				opened, DlcGetCatalog()->count);
 			return;
 		}
 		g_feedbackCatalogRecoveryDone = false;
@@ -14466,16 +14496,17 @@ static void FeedbackCatalogPump() {
 	const int result = DlcCatalogRecoveryPump();
 	if (result != 0) {
 		g_feedbackCatalogRecoveryRunning = false;
+		const int opened = (result == 1) ? DlcOpenSelectedStyleFiles() : 0;
 		if (result == 1 && DlcGetCatalog()->count <= 0 && !DlcEngineGlobTried()) {
-			g_feedbackCatalogMountState = -1;
 			g_feedbackCatalogReadAt = GetTickCount() + 500u;
-			Log("catalog workshop recovery empty; retry after addon paths settle");
+			Log("catalog GAME recovery empty; retry after addon paths settle");
 		} else {
 			g_feedbackCatalogRecoveryDone = true;
-			if (result == 1 && g_paintInGame.load(std::memory_order_relaxed))
-				PrecacheSelectedParticles("catalog-workshop-recovery");
-			Log("catalog workshop recovery result=%d styles=%d GAME=%d cpuMs=%d; selections retained",
-				result, DlcGetCatalog()->count, DlcLastEngineJsonCount(), DlcLastReloadMs());
+			if (result == 1 && g_paintInGame.load(std::memory_order_relaxed)
+				&& (DlcLastEngineJsonCount() > 0 || opened > 0))
+				PrecacheSelectedParticles("catalog-game-recovery");
+			Log("catalog GAME recovery result=%d styles=%d GAME=%d open=%d cpuMs=%d; selections retained",
+				result, DlcGetCatalog()->count, DlcLastEngineJsonCount(), opened, DlcLastReloadMs());
 		}
 	}
 }
@@ -29190,7 +29221,7 @@ static void MenuPaintEngine() {
 				line(y, col(g_optFeedbackWorkshopRecovery), buf);
 				y += lh;
 				SurfWrapDesign(y, cHint, UiText(UiId::FeedbackWorkshopRecoveryHint,
-					L"    默认关闭。工坊素材偶尔读不到时尝试开启；等待模组完成加载后补读素材。游戏若推迟挂载，需返回游戏主菜单后才能恢复。"), MenuHintGap());
+					L"    默认关闭。仅用于工坊订阅版很晚才挂上时再补读；本地 addons 不依赖此项。若游戏推迟工坊挂载，可能需返回游戏主菜单。"), MenuHintGap());
 				// Keep the same red footer pager used by every other paged menu.
 				MenuNoteBottom(g_menuContentBottom + MenuDesignLineH() + 10);
 				if (!g_menuLayoutDry) {
@@ -29302,7 +29333,7 @@ static void MenuPaintEngine() {
 				line(hitY + 266, cHint, UiText(UiId::Text_584a2c77, L"    关=关闭特感命中/击杀反馈，不跟普感"));
 				const int playbackY = SurfWrapDesign(hitY + 286, RGB(255, 70, 70),
 					UiText(UiId::FeedbackPackLocalWarning,
-						L"建议将 Skeeto 预设素材包的 VPK 本地化到 left4dead2\\addons\\，不要仅依赖 addons\\workshop\\ 中的工坊订阅版；快速进服时可能漏读素材。"), MenuHintGap()) + 4;
+						L"建议将 Skeeto 预设素材包的 VPK 放到 left4dead2\\addons\\，不要只靠 addons\\workshop\\ 中的工坊订阅版。"), MenuHintGap()) + 4;
 
 				line(playbackY + 0, cSection, UiText(UiId::Text_51a55f5c, L"—— 4. 特感反馈怎么播 ——"));
 				line(playbackY + 20, cHint, siOn ? UiText(UiId::Text_38d6b1f0, L"    （画面与音效可分开选，互不影响）")

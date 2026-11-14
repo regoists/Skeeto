@@ -121,8 +121,8 @@ SKEETO_UI(FeedbackStyleWaiting, L"Waiting for assets")
 SKEETO_UI(FeedbackStyleMissing, L"Assets not found")
 SKEETO_UI(FeedbackWorkshopSection, L"-- Workshop assets --")
 SKEETO_UI(FeedbackWorkshopRecovery, L"[7] Recover late Workshop assets %s")
-SKEETO_UI(FeedbackWorkshopRecoveryHint, L"    OFF by default. Try this if Workshop assets are sometimes missing; reads them after addon loading completes. If the game defers mounting, return to its main menu to recover.")
-SKEETO_UI(FeedbackPackLocalWarning, L"For reliability, install the Skeeto preset VPK directly in left4dead2\\addons\\ instead of relying only on its Workshop copy in addons\\workshop\\. Connecting too quickly may leave assets undiscovered.")
+SKEETO_UI(FeedbackWorkshopRecoveryHint, L"    OFF by default. Try this if a Workshop subscription mounts very late; local addons do not need it. If the game defers Workshop mounting, you may need to return to its main menu.")
+SKEETO_UI(FeedbackPackLocalWarning, L"For reliability, install the Skeeto preset VPK directly in left4dead2\\addons\\ instead of relying only on its Workshop copy in addons\\workshop\\.")
 // L"[7] 空中加速 【400】"
 SKEETO_UI(Text_00b15960, L"[7] Air acceleration [400]")
 // L"[3] 强制拉满渲染距离 %s"

@@ -64,8 +64,8 @@ struct DlcCatalog {
 
 // Load style JSON. Win32 scan of left4dead2\skeeto\ first (cheap).
 // Synchronous GAME enumeration only when allowEngineGlob (disconnected menu).
-// Optional late-mount recovery uses the separate bounded Pump below; never
-// enumerate GAME during loading or automatically on every chapter.
+// Bounded Paint recovery enumerates mounted addon VPKs; never glob GAME during
+// map load. A GAME search-path change allows another scan.
 void DlcReloadCatalog(const char* gameLeft4Dead2Dir, bool allowEngineGlob);
 // Configured admission limit: 64 (default), 96, 128. Changes wait for a safe reload.
 int DlcStyleLimit();
@@ -73,16 +73,27 @@ void DlcSetStyleLimit(int limit);
 bool DlcStyleLimitPending();
 // Returns true only if this call actually rebuilt the catalog.
 bool DlcEnsureCatalog(const char* gameLeft4Dead2Dir, bool allowEngineGlob);
-// True only after a real IFileSystem GAME enumeration was attempted. A loose
-// catalog being non-empty does not imply that VPK styles have been discovered.
+// True only after a real IFileSystem GAME enumeration was attempted for the
+// current GAME search path. A loose catalog being non-empty does not imply
+// that VPK styles have been discovered. Path changes clear this.
 bool DlcEngineGlobTried();
-// Query only; does not enumerate files. Used to avoid consuming the one-shot
-// recovery before the Source filesystem interface is available.
+// Sample GetSearchPath("GAME"); if it changed since the last GAME scan, clear
+// DlcEngineGlobTried(). Does not enumerate. Call on a bounded Paint cadence.
+void DlcNoteGameSearchPath();
+// Allow another GAME scan without a path-hash change (late workshop mount).
+void DlcAllowEngineGlobAgain();
+// True if a saved non-off channel ID is absent from the live catalog.
+bool DlcSelectedStyleMissing();
+// Open skeeto/skeeto_<id>.json (legacy particles/) for missing saved IDs.
+// Hard filename convention only; returns how many styles were added.
+int DlcOpenSelectedStyleFiles();
+// Query only; does not enumerate files. Used to avoid starting GAME recovery
+// before the Source filesystem interface is available.
 bool DlcEngineCatalogReady();
 int DlcLastEngineJsonCount();
 int DlcLastLooseJsonCount();
 int DlcLastReloadMs();
-// Optional late-mount recovery on the game/Paint thread. Merges into the current
+// Bounded late-mount recovery on the game/Paint thread. Merges into the current
 // catalog, preserving selected IDs. Begin opens one GAME enumeration; each Pump
 // visits at most one entry / reads one JSON (existing 8 MiB cap). 4096 entries per
 // glob, at most two legacy-compatible globs. Pump: 0 pending, 1 done, -1 failed.
