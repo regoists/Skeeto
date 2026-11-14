@@ -43,12 +43,15 @@ static bool g_engineGlobTried = false;
 static DWORD g_engineGlobRetryAt = 0;
 static int g_engineGlobEmptyTries = 0;
 
-// Addon VPKs join the GAME path after the menu thinks loading finished.
-// Two identical samples, or eight changes, then a scan is allowed to stick.
-static bool DlcGamePathSettled() {
+// Addon VPKs may join GAME after the first menu sample. Two identical
+// hashes, or eight changes, then a scan is allowed to stick.
+static unsigned g_gamePathHash = 0;
+static unsigned g_engineGlobAtPath = 0;
+
+static unsigned HashGameSearchPath() {
 	IFileSystem* fs = FsGet();
-	if (!fs) return false;
-	static char paths[4096];
+	if (!fs) return 0;
+	char paths[4096];
 	paths[0] = 0;
 	fs->GetSearchPath("GAME", true, paths, (int)sizeof(paths) - 1);
 	paths[sizeof(paths) - 1] = 0;
@@ -57,7 +60,37 @@ static bool DlcGamePathSettled() {
 		hash ^= (unsigned char)*p;
 		hash *= 16777619u;
 	}
-	if (!hash) hash = 1;
+	return hash ? hash : 1;
+}
+
+static void DlcRememberEngineGlobPath() {
+	if (!g_gamePathHash) g_gamePathHash = HashGameSearchPath();
+	g_engineGlobAtPath = g_gamePathHash;
+}
+
+void DlcNoteGameSearchPath() {
+	if (!FsGet()) return;
+	const unsigned hash = HashGameSearchPath();
+	if (!hash) return;
+	g_gamePathHash = hash;
+	if (g_engineGlobAtPath && hash != g_engineGlobAtPath) {
+		g_engineGlobTried = false;
+		g_engineGlobEmptyTries = 0;
+		g_engineGlobAtPath = 0;
+	}
+}
+
+void DlcAllowEngineGlobAgain() {
+	g_engineGlobTried = false;
+	g_engineGlobEmptyTries = 0;
+	g_engineGlobAtPath = 0;
+	g_engineGlobRetryAt = 0;
+}
+
+static bool DlcGamePathSettled() {
+	const unsigned hash = HashGameSearchPath();
+	if (!hash) return false;
+	g_gamePathHash = hash;
 	static unsigned last = 0;
 	static int stable = 0;
 	static int waits = 0;
@@ -596,6 +629,8 @@ void DlcReloadCatalog(const char* gameLeft4Dead2Dir, bool allowEngineGlob) {
 		} else {
 			g_engineGlobRetryAt = GetTickCount() + 500;
 		}
+		DlcRememberEngineGlobPath();
+		DlcOpenSelectedStyleFiles();
 	}
 
 	if (g_cat.count > 1)
@@ -608,7 +643,8 @@ void DlcReloadCatalog(const char* gameLeft4Dead2Dir, bool allowEngineGlob) {
 bool DlcEnsureCatalog(const char* gameLeft4Dead2Dir, bool allowEngineGlob) {
 	if (allowEngineGlob) {
 		// A successful loose scan is not proof that GAME/VPK styles have been
-		// discovered.  Keep the full enumeration as a separate one-time state.
+		// discovered.  Retried when the GAME search path changes.
+		DlcNoteGameSearchPath();
 		if (g_engineGlobTried && !g_styleLimitPending) return false;
 		const DWORD now = GetTickCount();
 		if (g_engineGlobRetryAt && (LONG)(now - g_engineGlobRetryAt) < 0)
@@ -630,6 +666,53 @@ bool DlcEnsureCatalog(const char* gameLeft4Dead2Dir, bool allowEngineGlob) {
 
 bool DlcEngineGlobTried() { return g_engineGlobTried; }
 bool DlcEngineCatalogReady() { return FsGet() != nullptr; }
+
+static bool StyleIdTokenOk(const char* id) {
+	if (!id || !id[0]) return false;
+	int n = 0;
+	for (const unsigned char* p = (const unsigned char*)id; *p; ++p, ++n) {
+		if (n >= 40) return false;
+		if (!isalnum(*p) && *p != '_' && *p != '-') return false;
+	}
+	return true;
+}
+
+bool DlcSelectedStyleMissing() {
+	static const char* kChannels[] = { "ci", "si", "ff", "fx" };
+	for (int i = 0; i < 4; ++i) {
+		const char* id = DlcGetSelected(kChannels[i]);
+		if (id && id[0] && _stricmp(id, "off") != 0 && !DlcFindStyle(id))
+			return true;
+	}
+	return false;
+}
+
+int DlcOpenSelectedStyleFiles() {
+	if (!FsGet()) return 0;
+	static const char* kChannels[] = { "ci", "si", "ff", "fx" };
+	static const char* kFmts[] = { "skeeto/skeeto_%s.json", "particles/skeeto_%s.json" };
+	int added = 0;
+	for (int i = 0; i < 4; ++i) {
+		const char* id = DlcGetSelected(kChannels[i]);
+		if (!id || !id[0] || _stricmp(id, "off") == 0 || DlcFindStyle(id)) continue;
+		if (!StyleIdTokenOk(id)) continue;
+		for (int f = 0; f < 2; ++f) {
+			char path[260]{};
+			snprintf(path, sizeof(path), kFmts[f], id);
+			char* buf = nullptr;
+			int len = 0;
+			if (!FsReadGAME(path, &buf, &len) || !buf) continue;
+			const int before = g_cat.count;
+			AddStyleFromJson(buf);
+			free(buf);
+			if (g_cat.count > before || DlcFindStyle(id)) {
+				++added;
+				break;
+			}
+		}
+	}
+	return added;
+}
 int DlcLastEngineJsonCount() { return g_lastEngineJson; }
 int DlcLastLooseJsonCount() { return g_lastLooseJson; }
 int DlcLastReloadMs() { return g_lastReloadMs; }
@@ -1039,6 +1122,7 @@ int DlcCatalogRecoveryPump() {
 			} else {
 				g_engineGlobRetryAt = GetTickCount() + 500;
 			}
+			DlcRememberEngineGlobPath();
 			g_catalogLoaded = true;
 			g_styleLimitPending = false;
 		}
