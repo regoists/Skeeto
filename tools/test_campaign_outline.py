@@ -34,7 +34,7 @@ def main():
     assert 'static bool g_optLaserSightOutline = false;' in source
     assert 'static bool g_optInteractScan = false;' in source
     assert 'kCampaignLaserCap = 8' in source
-    assert 'kCampaignLaserRange = 2000' in source
+    assert 'kCampaignLaserRange' not in source
     assert 'kInteractScanCap = 96' in source
     assert 'skeeto_laser_outline' in source
     assert 'skeeto_interact_scan' in source
