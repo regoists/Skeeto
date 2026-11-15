@@ -617,6 +617,11 @@ inline void SetLoading(bool loading) {
         if (((g_mode.load(std::memory_order_relaxed)&(32u|0x700u|0x1800u)) || g_nativePreload.active || g_loadingExperiments.active) && g_loadingEdge) g_loadingEdge(loading);
         g_pathCache.valid = false;
         if (g_mode.load(std::memory_order_relaxed) & 16u) ResetCandidates();
+        // ResetCandidates only resets store tables and leaves map[]. Entering a
+        // load must drop the previous chapter, but a falling edge must not wipe
+        // the identity LevelInit/BSP just wrote (early_view can end the screen
+        // before pack reads finish).
+        if (loading && skvpkexp::g_controller.enabled) skvpkexp::g_controller.BeginLoad();
     }
     g_loading.store(loading, std::memory_order_relaxed);
     const bool want = loading && (g_mode.load(std::memory_order_relaxed) & 4u);

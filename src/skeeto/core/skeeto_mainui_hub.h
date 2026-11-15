@@ -2,11 +2,29 @@
 // Included by proxy after homepage/editor/config helpers.
 #pragma once
 #include <ctime>
+static constexpr int kMainUiHubPageSize = 22; // 11 rows x 2 columns after raising the list panel
+static constexpr int kMainUiHubCols = 2;
+static constexpr int kMainUiHubRowPitch = 33;
+static constexpr int kMainUiHubRowH = 31;
+static constexpr int kMainUiHubPageMax = 22;
+static constexpr int kMainUiHubRowAction = 770; // 770-791; 560-579 would collide with settings 580+
+static constexpr int kMainUiHubPadX = 16;
+static constexpr int kMainUiHubInnerW = 984;
+static constexpr int kMainUiHubPanelY = 24;
+static constexpr int kMainUiHubPanelH = 536; // 24..560, keep the same bottom edge as other subpages
+static constexpr int kMainUiHubTitleY = 40;
+static constexpr int kMainUiHubBackY = 38;
+static constexpr int kMainUiHubHeadY = 96;
+static constexpr int kMainUiHubListY = 140;
+static constexpr int kMainUiHubFooterY = 510;
+static constexpr int kMainUiHubHintY = 560;
+static_assert(kMainUiHubPageSize <= kMainUiHubPageMax, "hub row buffers and action ids cap page size");
+static_assert(kMainUiHubListY + (kMainUiHubPageSize / kMainUiHubCols - 1) * kMainUiHubRowPitch + kMainUiHubRowH <= kMainUiHubFooterY, "list must fit above the footer");
 static MainUiHubSnapshot g_mainUiHub{};
 static DWORD g_mainUiHubReadAt=0;
 static int g_mainUiServerTab=0,g_mainUiHubPage=0,g_mainUiSaveSlot=0;
 static unsigned g_mainUiHubRowsRevision=~0u;
-static wchar_t g_mainUiHubRows[12][192]{},g_mainUiHubDetails[12][192]{};
+static wchar_t g_mainUiHubRows[kMainUiHubPageMax][192]{},g_mainUiHubDetails[kMainUiHubPageMax][192]{};
 static char g_mainUiQueryAddresses[kMainUiQueryMax][96]{};static int g_mainUiQueryAddressCount=-1;static DWORD g_mainUiQueryCollectAt=0;
 static char g_mainUiLastRecordedServer[96]{};
 static void MainUiHubJob(bool ok){g_mainUiNotice=ok?0:3;}
@@ -59,8 +77,8 @@ static bool MainUiHubDispatch(int action){
  else if(action==546||action==547){char* body=g_mainUiConfigBody;if(MainUiConfigCapture(body)){char name[48]{};sprintf_s(name,"profile_%02d.hud",g_mainUiSaveSlot+1);MainUiHubJob(MainUiServicesProfile(action==546?3:0,name,body));}}
  else if(action==553){MainUiEditorAddServer(217);return true;}
  else if(action==548)MainUiHubJob(MainUiServicesProfile(1,nullptr));
- else if(action==549){int rows[kMainUiLayoutMax]{};int count=g_mainUiPanel==5?(g_mainUiServerTab?MainUiHubFavorites(rows):g_mainUiHub.recentCount):g_mainUiPanel==6?g_mainUiHub.battleCount:g_mainUiHub.profileCount;int pages=(count+4)/5;g_mainUiHubPage=(g_mainUiHubPage+1)%(pages?pages:1);}
- else if(action>=560&&action<572){int at=action-560+g_mainUiHubPage*5;
+ else if(action==549){int rows[kMainUiLayoutMax]{};int count=g_mainUiPanel==5?(g_mainUiServerTab?MainUiHubFavorites(rows):g_mainUiHub.recentCount):g_mainUiPanel==6?g_mainUiHub.battleCount:g_mainUiHub.profileCount;int pages=(count+kMainUiHubPageSize-1)/kMainUiHubPageSize;g_mainUiHubPage=(g_mainUiHubPage+1)%(pages?pages:1);}
+ else if(action>=kMainUiHubRowAction&&action<kMainUiHubRowAction+kMainUiHubPageMax){int at=action-kMainUiHubRowAction+g_mainUiHubPage*kMainUiHubPageSize;
   if(g_mainUiPanel==5){const char* address=nullptr;int favorites[kMainUiLayoutMax]{};int n=MainUiHubFavorites(favorites);if(g_mainUiServerTab){if(at<n)address=g_mainUiLayout[favorites[at]].parameter;}else if(at<g_mainUiHub.recentCount)address=g_mainUiHub.recent[at].address;
    if(address&&MainUiLayoutParamValid(900,address)){char cmd[128]{},connect[96]{};MainUiServerConnectParameter(address,connect,sizeof(connect));sprintf_s(cmd,"connect %s",connect);MainUiRestore();EngClientCmdUnrestricted(cmd);}}
   else if(g_mainUiPanel==7&&at<g_mainUiHub.profileCount)MainUiHubJob(MainUiServicesProfile(2,g_mainUiHub.profiles[at]));
@@ -103,7 +121,7 @@ static void MainUiHubPump(){
  char* profile=g_mainUiConfigBody;if(MainUiServicesTakeProfile(profile,kMainUiProfileBytes))g_mainUiNotice=MainUiConfigApply(profile)?4:2;
  if(g_optMainUiServerQuery){if(g_mainUiQueryCollectAt&&(LONG)(now-g_mainUiQueryCollectAt)<0)return;g_mainUiQueryCollectAt=now+200u;char addresses[kMainUiQueryMax][96]{};int n=0;
   auto add=[&](const char* a){if(!MainUiLayoutParamValid(900,a)||n>=kMainUiQueryMax)return;for(int j=0;j<n;++j)if(!_stricmp(addresses[j],a))return;strcpy_s(addresses[n++],a);};
-  if(g_mainUiPanel==5){int indices[kMainUiLayoutMax]{},total=MainUiHubFavorites(indices),first=g_mainUiHubPage*5;for(int i=first;i<first+5;++i){if(g_mainUiServerTab){if(i<total)add(g_mainUiLayout[indices[i]].parameter);}else if(i<g_mainUiHub.recentCount)add(g_mainUiHub.recent[i].address);}}
+  if(g_mainUiPanel==5){int indices[kMainUiLayoutMax]{},total=MainUiHubFavorites(indices),first=g_mainUiHubPage*kMainUiHubPageSize;for(int i=first;i<first+kMainUiHubPageSize;++i){if(g_mainUiServerTab){if(i<total)add(g_mainUiLayout[indices[i]].parameter);}else if(i<g_mainUiHub.recentCount)add(g_mainUiHub.recent[i].address);}}
   else if(g_mainUiPanel==0&&g_mainUiFlyout==12){int indices[kMainUiLayoutMax]{},total=MainUiCustomChildren(indices),perPage=MainUiCustomPageSize(),first=g_mainUiCustomPage*perPage;for(int i=first;i<first+perPage&&i<total;++i)if(g_mainUiLayout[indices[i]].action==900)add(g_mainUiLayout[indices[i]].parameter);}
   else if(g_mainUiPanel==0&&g_mainUiFlyout<0){for(int i=0;i<g_mainUiLayoutCount;++i){const auto& b=g_mainUiLayout[i];if(b.visible&&b.parent<0&&b.action==900)add(b.parameter);}}
   if(n!=g_mainUiQueryAddressCount||memcmp(addresses,g_mainUiQueryAddresses,sizeof(addresses))){if(MainUiServicesQuery((const char*)addresses,n)){memcpy(g_mainUiQueryAddresses,addresses,sizeof(addresses));g_mainUiQueryAddressCount=n;}}
@@ -126,23 +144,31 @@ static void MainUiServerPresentation(const MainUiLayoutSlot& b,const wchar_t** n
 }
 
 static void MainUiHubDraw(bool registration){
- float s=(g_mainUiSw-48.f)/1040.f;if((g_mainUiSh-48.f)/600.f<s)s=(g_mainUiSh-48.f)/600.f;auto U=[=](int v){return (int)(v*s+.5f);};int ox=(g_mainUiSw-U(1040))/2,oy=(g_mainUiSh-U(600))/2,x=ox+U(312);
+ float s=(g_mainUiSw-48.f)/1040.f;if((g_mainUiSh-48.f)/600.f<s)s=(g_mainUiSh-48.f)/600.f;auto U=[=](int v){return (int)(v*s+.5f);};int ox=(g_mainUiSw-U(1040))/2,oy=(g_mainUiSh-U(600))/2;
+ const bool wide=g_mainUiPanel>=5&&g_mainUiPanel<=7;
+ int x=ox+U(wide?kMainUiHubPadX:312);
+ const int inner=U(wide?kMainUiHubInnerW:672);
+ const int colGap=U(24);
+ const int cols=wide?kMainUiHubCols:1;
+ const int colW=cols>1?(inner-(cols-1)*colGap)/cols:inner;
+ const int rowsPerCol=(kMainUiHubPageSize+cols-1)/cols;
  auto button=[&](int px,int py,int width,int id,const wchar_t* label){MainUiLayoutSlot b=MainUiLayoutBlank();b.id=id;b.font=id>=540&&id<=549?0:1;if(id==540||id==541||id==543)b.color=(id==540?g_optMainUiRememberServers:id==541?g_optMainUiServerQuery:g_optMainUiBattleArchive)?2:4;int mx=0,my=0;int hover=!registration&&!g_mainUiUnderlay&&MainUiMouse(&mx,&my)?MainUiHit(mx,my):-1;MainUiDrawSlot(b,px,py,width,U(34),registration,hover,-1,-1,label);};
  auto text=[&](int px,int py,const wchar_t* label,int width,COLORREF c=RGB(180,188,197)){if(!registration)MainUiText(g_mainUiFonts[2],px,py,c,label,width,g_mainUiHubRowsRevision);};
  if(g_mainUiPanel==8){static const int actions[]={209,210,211,212,213,214};for(int i=0;i<6;++i)button(x+U(28),oy+U(211+i*44),U(672),actions[i],MainUiActionTitle(actions[i]));return;}
 
- int rows[kMainUiLayoutMax]{},count=0;int first=g_mainUiHubPage*5;
+ int rows[kMainUiLayoutMax]{},count=0;int first=g_mainUiHubPage*kMainUiHubPageSize;
  if(g_mainUiPanel==5){
-  button(x+U(28),oy+U(201),U(216),540,UiText(g_optMainUiRememberServers?UiId::MainUiRecentOn:UiId::MainUiRecentOff,g_optMainUiRememberServers?L"记录服务器：开":L"记录服务器：关"));
-  button(x+U(256),oy+U(201),U(216),541,UiText(g_optMainUiServerQuery?UiId::MainUiQueryOn:UiId::MainUiQueryOff,g_optMainUiServerQuery?L"状态查询：开":L"状态查询：关"));
-  button(x+U(484),oy+U(201),U(216),542,UiText(g_mainUiServerTab?UiId::MainUiFavoritesTab:UiId::MainUiRecentTab,g_mainUiServerTab?L"收藏服务器":L"服务器游玩记录"));count=g_mainUiServerTab?MainUiHubFavorites(rows):g_mainUiHub.recentCount;
- }else if(g_mainUiPanel==6){button(x+U(28),oy+U(201),U(326),543,UiText(g_optMainUiBattleArchive?UiId::MainUiBattleOn:UiId::MainUiBattleOff,g_optMainUiBattleArchive?L"记录战报：开":L"记录战报：关"));button(x+U(374),oy+U(201),U(326),544,UiText(UiId::MainUiOpenReport,L"浏览器查看完整战报"));count=g_mainUiHub.battleCount;
- }else if(g_mainUiPanel==7){button(x+U(28),oy+U(201),U(160),545,UiText(UiId::MainUiProfileSlot,L"切换保存槽"));button(x+U(198),oy+U(201),U(160),546,UiText(UiId::MainUiSaveProfile,L"保存当前方案"));button(x+U(368),oy+U(201),U(160),547,UiText(UiId::MainUiExportProfile,L"导出 / 分享"));button(x+U(538),oy+U(201),U(162),548,UiText(UiId::MainUiImportProfile,L"导入方案"));count=g_mainUiHub.profileCount;}
- int pages=(count+4)/5;if(pages<1)pages=1;if(g_mainUiHubPage>=pages){g_mainUiHubPage=0;first=0;g_mainUiHubRowsRevision=~0u;}
+  const int bw=U(312),gap=U(24);
+  button(x+U(28),oy+U(kMainUiHubHeadY),bw,540,UiText(g_optMainUiRememberServers?UiId::MainUiRecentOn:UiId::MainUiRecentOff,g_optMainUiRememberServers?L"记录服务器：开":L"记录服务器：关"));
+  button(x+U(28)+bw+gap,oy+U(kMainUiHubHeadY),bw,541,UiText(g_optMainUiServerQuery?UiId::MainUiQueryOn:UiId::MainUiQueryOff,g_optMainUiServerQuery?L"状态查询：开":L"状态查询：关"));
+  button(x+U(28)+2*(bw+gap),oy+U(kMainUiHubHeadY),bw,542,UiText(g_mainUiServerTab?UiId::MainUiFavoritesTab:UiId::MainUiRecentTab,g_mainUiServerTab?L"收藏服务器":L"服务器游玩记录"));count=g_mainUiServerTab?MainUiHubFavorites(rows):g_mainUiHub.recentCount;
+ }else if(g_mainUiPanel==6){const int bw=U(480),gap=U(24);button(x+U(28),oy+U(kMainUiHubHeadY),bw,543,UiText(g_optMainUiBattleArchive?UiId::MainUiBattleOn:UiId::MainUiBattleOff,g_optMainUiBattleArchive?L"记录战报：开":L"记录战报：关"));button(x+U(28)+bw+gap,oy+U(kMainUiHubHeadY),bw,544,UiText(UiId::MainUiOpenReport,L"浏览器查看完整战报"));count=g_mainUiHub.battleCount;
+ }else if(g_mainUiPanel==7){const int bw=U(228),gap=U(24);button(x+U(28),oy+U(kMainUiHubHeadY),bw,545,UiText(UiId::MainUiProfileSlot,L"切换保存槽"));button(x+U(28)+bw+gap,oy+U(kMainUiHubHeadY),bw,546,UiText(UiId::MainUiSaveProfile,L"保存当前方案"));button(x+U(28)+2*(bw+gap),oy+U(kMainUiHubHeadY),bw,547,UiText(UiId::MainUiExportProfile,L"导出 / 分享"));button(x+U(28)+3*(bw+gap),oy+U(kMainUiHubHeadY),bw,548,UiText(UiId::MainUiImportProfile,L"导入方案"));count=g_mainUiHub.profileCount;}
+ int pages=(count+kMainUiHubPageSize-1)/kMainUiHubPageSize;if(pages<1)pages=1;if(g_mainUiHubPage>=pages){g_mainUiHubPage=0;first=0;g_mainUiHubRowsRevision=~0u;}
  // Format only on data/tab/page changes. Stable addresses feed the shared fit cache.
  if(g_mainUiHubRowsRevision!=g_mainUiHub.revision){
   memset(g_mainUiHubRows,0,sizeof(g_mainUiHubRows));memset(g_mainUiHubDetails,0,sizeof(g_mainUiHubDetails));
-  for(int i=0;i<5&&first+i<count;++i){int at=first+i;
+  for(int i=0;i<kMainUiHubPageSize&&first+i<count;++i){int at=first+i;
    if(g_mainUiPanel==5){const char* address=g_mainUiServerTab?g_mainUiLayout[rows[at]].parameter:g_mainUiHub.recent[at].address;const char* name=g_mainUiServerTab?g_mainUiLayout[rows[at]].title:g_mainUiHub.recent[at].name;MainUiServerStatus* status=nullptr;for(int j=0;j<g_mainUiHub.queryCount;++j)if(!_stricmp(g_mainUiHub.queries[j].address,address))status=&g_mainUiHub.queries[j];
     if(status&&status->name[0])name=status->name;MultiByteToWideChar(CP_UTF8,0,name[0]?name:address,-1,g_mainUiHubRows[i],192);wchar_t addr[96]{},map[96]{};char connect[96]{};MainUiServerConnectParameter(address,connect,sizeof(connect));MultiByteToWideChar(CP_UTF8,0,connect,-1,addr,96);
     if(status&&status->state==1){MultiByteToWideChar(CP_UTF8,0,status->map,-1,map,96);swprintf_s(g_mainUiHubDetails[i],L"%s | %d/%d | %s | %d ms",addr,status->players,status->maxPlayers,map,status->ping);}
@@ -151,18 +177,29 @@ static void MainUiHubDraw(bool registration){
    }else MultiByteToWideChar(CP_UTF8,0,g_mainUiHub.profiles[at],-1,g_mainUiHubRows[i],192);
   }g_mainUiHubRowsRevision=g_mainUiHub.revision;++g_mainUiTextRevision;
  }
- for(int i=0;i<5&&first+i<count;++i){int y=oy+U(244+i*52);
-  if(g_mainUiPanel==5){MainUiLayoutSlot b=MainUiLayoutBlank();b.id=560+i;int mx=0,my=0,hover=!registration&&!g_mainUiUnderlay&&MainUiMouse(&mx,&my)?MainUiHit(mx,my):-1;
-   const int h=U(48);MainUiDrawSlot(b,x+U(28),y,U(672),h,registration,hover,-1,-1,L"");
+ for(int i=0;i<kMainUiHubPageSize&&first+i<count;++i){
+  const int col=i/rowsPerCol,row=i%rowsPerCol;const int px=x+U(28)+col*(colW+colGap);const int y=oy+U(kMainUiHubListY+row*kMainUiHubRowPitch);const int textW=colW-U(20);const int h=U(kMainUiHubRowH);
+  if(g_mainUiPanel==5){MainUiLayoutSlot b=MainUiLayoutBlank();b.id=kMainUiHubRowAction+i;int mx=0,my=0,hover=!registration&&!g_mainUiUnderlay&&MainUiMouse(&mx,&my)?MainUiHit(mx,my):-1;
+   MainUiDrawSlot(b,px,y,colW,h,registration,hover,-1,-1,L"");
    if(!registration){int nf=1;if(g_mainUiFontPx[nf]+g_mainUiFontPx[2]+4>h)nf=2;
     if(g_mainUiFontPx[nf]+g_mainUiFontPx[2]+4<=h){const int top=y+(h-g_mainUiFontPx[nf]-g_mainUiFontPx[2]-2)/2;
-     MainUiText(g_mainUiFonts[nf],x+U(38),top,hover==b.id?MainUiAccentColor():RGB(244,245,246),g_mainUiHubRows[i],U(652),g_mainUiHubRowsRevision);
-     MainUiText(g_mainUiFonts[2],x+U(38),top+g_mainUiFontPx[nf]+2,RGB(180,188,197),g_mainUiHubDetails[i],U(652),g_mainUiHubRowsRevision);
-    }else MainUiText(g_mainUiFonts[2],x+U(38),y+(h-g_mainUiFontPx[2])/2,RGB(244,245,246),g_mainUiHubRows[i],U(652),g_mainUiHubRowsRevision);}}
-  else{if(g_mainUiPanel==6)text(x+U(28),y,g_mainUiHubRows[i],U(672),RGB(244,245,246));else button(x+U(28),y,U(672),560+i,g_mainUiHubRows[i]);text(x+U(38),y+U(29),g_mainUiHubDetails[i],U(652));}}
- if(!count)text(x+U(28),oy+U(272),g_mainUiPanel==7?UiText(UiId::MainUiProfilesEmpty,L"暂无方案。保存当前主菜单，或导入主菜单方案。") : g_mainUiPanel==6?UiText(UiId::MainUiBattlesEmpty,L"暂无成功通关的战报。开启记录和章节统计后通关一章再查看。") : UiText(UiId::MainUiHubEmpty,L"暂无记录。开启记录后游玩；收藏服务器可在编辑器中添加。"),U(672));
- if(g_mainUiPanel==5)button(x+U(486),oy+U(510),U(214),553,UiText(UiId::MainUiAddServer,L"添加服务器"));
- button(x+U(28),oy+U(510),U(160),549,UiText(UiId::MainUiHubNext,L"下一页"));
- wchar_t page[96]{};swprintf_s(page,L"%d / %d%s%d",g_mainUiHubPage+1,pages,g_mainUiPanel==7?L" | Slot ":L" | ",g_mainUiPanel==7?g_mainUiSaveSlot+1:count);if(!registration)SurfTextAt(g_mainUiFonts[2],x+U(208),oy+U(518),RGB(180,188,197),page);
- text(x+U(28),oy+U(560)-g_mainUiFontPx[2]-U(10),g_mainUiPanel==6?UiText(UiId::MainUiBattleHint,L"需开启章节统计；只记录开启后成功通关的章节与小队数据。") : g_mainUiPanel==7?UiText(UiId::MainUiProfileHint,L"只切换主菜单按钮、子菜单与外观；不修改游戏内 HUD。") : UiText(UiId::MainUiServerHint,L"点击条目重连；地址后可追加 @查询端口；超时不代表离线。"),U(672));
+     MainUiText(g_mainUiFonts[nf],px+U(10),top,hover==b.id?MainUiAccentColor():RGB(244,245,246),g_mainUiHubRows[i],textW,g_mainUiHubRowsRevision);
+     MainUiText(g_mainUiFonts[2],px+U(10),top+g_mainUiFontPx[nf]+2,RGB(180,188,197),g_mainUiHubDetails[i],textW,g_mainUiHubRowsRevision);
+    }else MainUiText(g_mainUiFonts[2],px+U(10),y+(h-g_mainUiFontPx[2])/2,RGB(244,245,246),g_mainUiHubRows[i],textW,g_mainUiHubRowsRevision);}}
+  else if(g_mainUiPanel==6){
+   if(!registration){int nf=1;if(g_mainUiFontPx[nf]+g_mainUiFontPx[2]+4>h)nf=2;
+    if(g_mainUiFontPx[nf]+g_mainUiFontPx[2]+4<=h){const int top=y+(h-g_mainUiFontPx[nf]-g_mainUiFontPx[2]-2)/2;
+     MainUiText(g_mainUiFonts[nf],px+U(10),top,RGB(244,245,246),g_mainUiHubRows[i],textW,g_mainUiHubRowsRevision);
+     MainUiText(g_mainUiFonts[2],px+U(10),top+g_mainUiFontPx[nf]+2,RGB(180,188,197),g_mainUiHubDetails[i],textW,g_mainUiHubRowsRevision);
+    }else MainUiText(g_mainUiFonts[2],px+U(10),y+(h-g_mainUiFontPx[2])/2,RGB(244,245,246),g_mainUiHubRows[i],textW,g_mainUiHubRowsRevision);}
+  }else{button(px,y,colW,kMainUiHubRowAction+i,g_mainUiHubRows[i]);
+   if(!registration&&g_mainUiHubDetails[i][0]){int nf=1;if(g_mainUiFontPx[nf]+g_mainUiFontPx[2]+4>h)nf=2;
+    if(g_mainUiFontPx[nf]+g_mainUiFontPx[2]+4<=h){const int top=y+(h-g_mainUiFontPx[nf]-g_mainUiFontPx[2]-2)/2;
+     MainUiText(g_mainUiFonts[2],px+U(10),top+g_mainUiFontPx[nf]+2,RGB(180,188,197),g_mainUiHubDetails[i],textW,g_mainUiHubRowsRevision);}}}
+ }
+ if(!count)text(x+U(28),oy+U(kMainUiHubListY+28),g_mainUiPanel==7?UiText(UiId::MainUiProfilesEmpty,L"暂无方案。保存当前主菜单，或导入主菜单方案。") : g_mainUiPanel==6?UiText(UiId::MainUiBattlesEmpty,L"暂无成功通关的战报。开启记录和章节统计后通关一章再查看。") : UiText(UiId::MainUiHubEmpty,L"暂无记录。开启记录后游玩；收藏服务器可在编辑器中添加。"),inner);
+ if(g_mainUiPanel==5)button(x+U(28)+inner-U(214),oy+U(kMainUiHubFooterY),U(214),553,UiText(UiId::MainUiAddServer,L"添加服务器"));
+ button(x+U(28),oy+U(kMainUiHubFooterY),U(160),549,UiText(UiId::MainUiHubNext,L"下一页"));
+ wchar_t page[96]{};swprintf_s(page,L"%d / %d%s%d",g_mainUiHubPage+1,pages,g_mainUiPanel==7?L" | Slot ":L" | ",g_mainUiPanel==7?g_mainUiSaveSlot+1:count);if(!registration)SurfTextAt(g_mainUiFonts[2],x+U(208),oy+U(kMainUiHubFooterY+8),RGB(180,188,197),page);
+ text(x+U(28),oy+U(kMainUiHubHintY)-g_mainUiFontPx[2]-U(10),g_mainUiPanel==6?UiText(UiId::MainUiBattleHint,L"需开启章节统计；只记录开启后成功通关的章节与小队数据。") : g_mainUiPanel==7?UiText(UiId::MainUiProfileHint,L"只切换主菜单按钮、子菜单与外观；不修改游戏内 HUD。") : UiText(UiId::MainUiServerHint,L"点击条目重连；地址后可追加 @查询端口；超时不代表离线。"),inner);
 }

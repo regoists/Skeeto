@@ -19,20 +19,20 @@ static bool MainUiConfigApply(char* body,bool startup=false){
  // every staging field before returning on failure; never dispatch any actions.
  // Serialized on startup or Paint; no reentrant callbacks during validation.
  static MainUiLayoutSlot prior[kMainUiLayoutMax]{};memcpy(prior,g_mainUiLayout,sizeof(prior));
- const int count=g_mainUiLayoutCount,version=g_mainUiLayoutVersion;const bool decor=g_mainUiHomeDecor,read=g_mainUiLayoutRead,bad=g_mainUiLayoutBad;
+ const int count=g_mainUiLayoutCount,version=g_mainUiLayoutVersion;const bool decor=g_mainUiHomeDecor,read=g_mainUiLayoutRead,bad=g_mainUiLayoutBad,accentMigrated=g_mainUiAccentLineMigrated;
  bool priorSeen[kMainUiLayoutMax];memcpy(priorSeen,g_mainUiLayoutSeen,sizeof(priorSeen));
- auto restore=[&](){memcpy(g_mainUiLayout,prior,sizeof(prior));g_mainUiLayoutCount=count;g_mainUiHomeDecor=decor;g_mainUiLayoutRead=read;g_mainUiLayoutBad=bad;g_mainUiLayoutVersion=version;memcpy(g_mainUiLayoutSeen,priorSeen,sizeof(priorSeen));};
+ auto restore=[&](){memcpy(g_mainUiLayout,prior,sizeof(prior));g_mainUiLayoutCount=count;g_mainUiHomeDecor=decor;g_mainUiLayoutRead=read;g_mainUiLayoutBad=bad;g_mainUiLayoutVersion=version;g_mainUiAccentLineMigrated=accentMigrated;memcpy(g_mainUiLayoutSeen,priorSeen,sizeof(priorSeen));};
  MainUiLayoutReset();MainUiConfigValues v{};int* values[]={&v.enabled,&v.accent,&v.backdrop,&v.mode,&v.difficulty,&v.recent,&v.query,&v.battles,&v.limit,&v.hints,&v.version,&v.gameName,&v.textAutoScale,&v.logo,&v.accentLine,&v.backdropFollow,&v.backdropRgb,&v.fixedShortcuts};
  static const char* names[]={"enabled","accent","backdrop","mode","difficulty","record_servers","query_servers","record_battles","button_limit","show_hints","show_version","show_game_name","text_auto_scale","show_logo","show_accent_line","backdrop_follow","backdrop_rgb","fixed_shortcuts"};
- static const int maximum[]={1,5,100,6,3,1,1,1,kMainUiLayoutMax,1,1,1,1,1,1,1,0xffffff,1};unsigned mask=0;bool layoutVersion=false,layoutCount=false,layoutDecor=false;
+ static const int maximum[]={1,5,100,6,3,1,1,1,kMainUiLayoutMax,1,1,1,1,1,1,1,0xffffff,1};unsigned mask=0;bool layoutVersion=false,layoutCount=false,layoutDecor=false,layoutAccentElem=false;
  unsigned short fields[kMainUiLayoutMax]{};int keyCount=0;const char* p=body+header;bool ok=true;
  while(*p&&ok){const char* end=strchr(p,'\n');if(!end)end=p+strlen(p);size_t length=end-p;if(length&&p[length-1]=='\r')--length;
   if(length>240){ok=false;break;}if(length&&*p!='#'&&*p!=';'){
    char line[256]{};memcpy(line,p,length);char* eq=strchr(line,'=');if(!eq||eq==line||(size_t)(eq-line)>=80||keyCount>=kMainUiLayoutMax*14+32){ok=false;break;}
    char key[80]{};memcpy(key,line,eq-line);++keyCount;
    if(!strncmp(key,"mainmenu_layout_",16)){
-    const bool versionKey=!strcmp(key,"mainmenu_layout_v"),countKey=!strcmp(key,"mainmenu_layout_count"),decorKey=!strcmp(key,"mainmenu_layout_decor");
-    if(versionKey||countKey||decorKey){if((versionKey&&layoutVersion)||(countKey&&layoutCount)||(decorKey&&layoutDecor)){ok=false;break;}char* tail=nullptr;long n=strtol(eq+1,&tail,10);if(tail==eq+1||*tail||(versionKey?n!=1:countKey?n<0||n>kMainUiLayoutMax:n<0||n>1)){ok=false;break;}}
+    const bool versionKey=!strcmp(key,"mainmenu_layout_v"),countKey=!strcmp(key,"mainmenu_layout_count"),decorKey=!strcmp(key,"mainmenu_layout_decor"),accentElemKey=!strcmp(key,"mainmenu_layout_accent_elem");
+    if(versionKey||countKey||decorKey||accentElemKey){if((versionKey&&layoutVersion)||(countKey&&layoutCount)||(decorKey&&layoutDecor)||(accentElemKey&&layoutAccentElem)){ok=false;break;}char* tail=nullptr;long n=strtol(eq+1,&tail,10);if(tail==eq+1||*tail||(versionKey?n!=1:countKey?n<0||n>kMainUiLayoutMax:n<0||n>1)){ok=false;break;}}
     else {int index=-1,chunk=-1,pos=0,bit=-1;
      if(sscanf(key,"mainmenu_layout_row_%d%n",&index,&pos)==1&&pos&&key[pos]==0)bit=0;
      else {pos=0;if(sscanf(key,"mainmenu_layout_parent_%d%n",&index,&pos)==1&&pos&&key[pos]==0)bit=1;
@@ -40,7 +40,7 @@ static bool MainUiConfigApply(char* body,bool startup=false){
        else {pos=0;if(sscanf(key,"mainmenu_layout_param_%d_%d%n",&index,&chunk,&pos)==2&&pos&&key[pos]==0&&chunk>=0&&chunk<8)bit=6+chunk;}}}
      if(index<0||index>=kMainUiLayoutMax||bit<0||(fields[index]&(1u<<bit))){ok=false;break;}fields[index]|=1u<<bit;
     }
-    layoutVersion|=versionKey;layoutCount|=countKey;layoutDecor|=decorKey;MainUiLayoutReadLine(line);
+    layoutVersion|=versionKey;layoutCount|=countKey;layoutDecor|=decorKey;layoutAccentElem|=accentElemKey;MainUiLayoutReadLine(line);
    }
    else {int at=-1;for(int i=0;i<(int)_countof(names);++i)if(!strcmp(key,names[i]))at=i;if(at>=0){if(mask&(1u<<at)){ok=false;break;}char* tail=nullptr;long number=strtol(eq+1,&tail,10);if(tail==eq+1||*tail||number<(at==8?256:0)||number>maximum[at]||(at==8&&number!=256&&number!=512)){ok=false;break;}*values[at]=(int)number;mask|=1u<<at;}}
   }p=*end?end+1:end;

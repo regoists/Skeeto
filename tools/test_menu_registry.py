@@ -458,7 +458,7 @@ allowed_ids = (
     | (set(range(200, 221)) - {215})
     | {900, 901, 902, 903}
     | (set(range(904, 926)) - {908, 909, 923})
-    | set(range(930, 938))
+    | set(range(930, 939))
 )
 assert len(action_ids) == len(set(action_ids)), "duplicate persisted main-menu action id"
 assert set(action_ids) == allowed_ids, "serialized action ids changed; review current.hud compatibility"

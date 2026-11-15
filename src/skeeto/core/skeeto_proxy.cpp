@@ -2555,6 +2555,26 @@ static DissCiHurt g_dissCiHurt[kDissCiHurtMax]{};
 static int g_dissCiHurtN = 0;
 static void DissCiHurtNote(int ent, void* ptr);
 static bool g_optClientDmgNum = false;       // floating damage numbers (client draw; any server)
+static constexpr int kDmgNumSizeN = 6;
+static constexpr int kDmgNumSizeVals[kDmgNumSizeN] = { 16, 20, 24, 28, 32, 36 };
+static int g_optClientDmgNumSize = 24;     // base font px; default matches the previous fixed 24
+static int ClientDmgNumFontPx() {
+	int v = g_optClientDmgNumSize;
+	int best = kDmgNumSizeVals[2];
+	int bestDelta = 1000;
+	for (int i = 0; i < kDmgNumSizeN; ++i) {
+		const int d = v < kDmgNumSizeVals[i] ? kDmgNumSizeVals[i] - v : v - kDmgNumSizeVals[i];
+		if (d < bestDelta) { bestDelta = d; best = kDmgNumSizeVals[i]; }
+	}
+	return best;
+}
+static int ClientDmgNumCritFontPx() {
+	const int base = ClientDmgNumFontPx();
+	int px = (base * 34 + 12) / 24;
+	if (px < base + 4) px = base + 4;
+	if (px > 64) px = 64;
+	return px;
+}
 static int g_optClientDmgCritThresh = 3;    // index: 0=Off / 1=50 / 2=80 / 3=100(default) / 4=150 / 5=200
 static constexpr int kDmgCritThreshN = 6;
 static constexpr int kDmgCritThreshVals[kDmgCritThreshN] = { 0, 50, 80, 100, 150, 200 };
@@ -3460,6 +3480,21 @@ static unsigned long g_dmgCritFont = 0;
 static int g_dmgCritFontTall = 0;
 static unsigned long g_dmgFriendlyFireFont = 0;
 static int g_dmgFriendlyFireFontTall = 0;
+static void ClientDmgNumInvalidateFonts() {
+	g_dmgFont = 0; g_dmgFontTall = 0;
+	g_dmgCritFont = 0; g_dmgCritFontTall = 0;
+	g_dmgFriendlyFireFont = 0; g_dmgFriendlyFireFontTall = 0;
+}
+static bool ClientDmgNumCycleSize(int dir) {
+	const int cur = ClientDmgNumFontPx();
+	int idx = 0;
+	for (int i = 0; i < kDmgNumSizeN; ++i) if (kDmgNumSizeVals[i] == cur) { idx = i; break; }
+	const int next = idx + (dir >= 0 ? 1 : -1);
+	if (next < 0 || next >= kDmgNumSizeN) return false;
+	g_optClientDmgNumSize = kDmgNumSizeVals[next];
+	ClientDmgNumInvalidateFonts();
+	return true;
+}
 static unsigned long g_menuFont = 0;
 static int g_menuFontTall = 0;
 static int g_menuFontFlags = -1;
@@ -4611,6 +4646,7 @@ void SaveSettings() {
 		"client_no_corpse_si=%d\n"
 		"client_no_corpse_ci=%d\n"
 		"client_dmg_num=%d\n"
+		"client_dmg_num_size=%d\n"
 		"client_dmg_crit_thresh=%d\n"
 		"client_dmg_crit_thresh2=%d\n"
 		"client_director_hud=%d\n"
@@ -4783,6 +4819,7 @@ void SaveSettings() {
 		g_optClientNoCorpseSi ? 1 : 0,
 		g_optClientNoCorpseCi ? 1 : 0,
 		g_optClientDmgNum ? 1 : 0,
+		ClientDmgNumFontPx(),
 		g_optClientDmgCritThresh,
 		g_optClientDmgCritThresh2,
 		g_optClientDirectorHud ? 1 : 0,
@@ -6438,6 +6475,11 @@ static bool LoadSettingsClientUxLine(const char* line, bool* hadDirectorHud) {
 		g_optClientDmgNum = v != 0;
 		return true;
 	}
+	if (sscanf(line, "client_dmg_num_size=%d", &v) == 1) {
+		g_optClientDmgNumSize = v;
+		g_optClientDmgNumSize = ClientDmgNumFontPx();
+		return true;
+	}
 	if (sscanf(line, "client_dmg_crit_thresh=%d", &v) == 1) {
 		if (v < 0) v = 0;
 		if (v >= kDmgCritThreshN) v = kDmgCritThreshN - 1;
@@ -7281,6 +7323,7 @@ static void LoadSettings() {
 	g_optClientAcidOutlineWidth = 3;
 	g_optClientAcidOutlineColor = 0;
 	g_optClientDmgNum = false;
+	g_optClientDmgNumSize = 24;
 	g_optClientDmgCritThresh = 3;
 	g_optClientDmgCritThresh2 = 2;
 	g_optClientDirectorHud = false;
@@ -13478,8 +13521,8 @@ static void ClientUxPaintDmgNums() {
 			? (g_dmgFriendlyFireFontTall > 0 ? g_dmgFriendlyFireFontTall
 				: skeeto_damage::FriendlyFireDamageFontPx(g_dmgFontTall > 0 ? g_dmgFontTall : 24))
 			: (isCrit
-			? (g_dmgCritFontTall > 0 ? g_dmgCritFontTall : 34)
-			: (g_dmgFontTall > 0 ? g_dmgFontTall : 20));
+			? (g_dmgCritFontTall > 0 ? g_dmgCritFontTall : ClientDmgNumCritFontPx())
+			: (g_dmgFontTall > 0 ? g_dmgFontTall : ClientDmgNumFontPx()));
 		const int tw = len * (th * 3 / 5);
 		int tx = (int)(sx + 0.5f) - tw / 2;
 		int ty = (int)(sy + 0.5f);
@@ -15902,6 +15945,10 @@ static void __fastcall Hooked_ServerLevelShutdown(void* ecx, void* edx) {
 	g_fastLoadLocalLevel.store(false, std::memory_order_relaxed);
 	g_fastLoadLocalLevelEdge.store(true, std::memory_order_release);
 	g_fastLoadLocalTransitionPending.store(false, std::memory_order_release);
+	if (g_run.load(std::memory_order_relaxed)
+		&& GetCurrentThreadId()==skload::g_ownerThread.load(std::memory_order_relaxed)
+		&& skvpkexp::g_controller.enabled)
+		skvpkexp::g_controller.BeginLoad();
 	// Restore before the next map's scripts can assign their own setting.
 	// A foreign callback only publishes the edge for the established Paint thread.
 	if (g_run.load(std::memory_order_relaxed) && GetCurrentThreadId()==skload::g_ownerThread.load(std::memory_order_relaxed)
@@ -20787,39 +20834,47 @@ void SurfEnsureSpeedTimerFonts() {
 }
 
 static void SurfEnsureDmgFont() {
-	if (g_dmgFont) return;
+	const int want = ClientDmgNumFontPx();
+	if (g_dmgFont && g_dmgFontTall == want) return;
 	if (!g_surf || g_sktUiFontsHold) return;
 	static int s_attemptEpoch = 0;
-	if (s_attemptEpoch == g_sktFontEpoch) return;
+	static int s_attemptSize = 0;
+	if (!g_dmgFont && s_attemptEpoch == g_sktFontEpoch && s_attemptSize == want) return;
 	s_attemptEpoch = g_sktFontEpoch;
+	s_attemptSize = want;
 	const int flags = kFontFlagAntiAlias | kFontFlagDropShadow | kFontFlagOutline;
-	g_dmgFont = SurfMakeGameFontRaw(24, 800, flags);
-	g_dmgFontTall = 24;
+	const unsigned long created = SurfMakeGameFontRaw(want, 800, flags);
+	if (created) { g_dmgFont = created; g_dmgFontTall = want; }
 }
 
 static void SurfEnsureDmgCritFont() {
-	if (g_dmgCritFont) return;
+	const int want = ClientDmgNumCritFontPx();
+	if (g_dmgCritFont && g_dmgCritFontTall == want) return;
 	if (!g_surf || g_sktUiFontsHold) return;
 	static int s_attemptEpoch = 0;
-	if (s_attemptEpoch == g_sktFontEpoch) return;
+	static int s_attemptSize = 0;
+	if (!g_dmgCritFont && s_attemptEpoch == g_sktFontEpoch && s_attemptSize == want) return;
 	s_attemptEpoch = g_sktFontEpoch;
+	s_attemptSize = want;
 	const int flags = kFontFlagAntiAlias | kFontFlagDropShadow | kFontFlagOutline;
-	g_dmgCritFont = SurfMakeGameFontRaw(34, 800, flags);
-	g_dmgCritFontTall = 34;
+	const unsigned long created = SurfMakeGameFontRaw(want, 800, flags);
+	if (created) { g_dmgCritFont = created; g_dmgCritFontTall = want; }
 }
 
 static void SurfEnsureFriendlyFireDmgFont() {
-	if (g_dmgFriendlyFireFont) return;
-	if (!g_surf || g_sktUiFontsHold) return;
-	static int s_attemptEpoch = 0;
-	if (s_attemptEpoch == g_sktFontEpoch) return;
-	s_attemptEpoch = g_sktFontEpoch;
-	const int basePx = g_dmgFontTall > 0 ? g_dmgFontTall : 24;
+	const int basePx = g_dmgFontTall > 0 ? g_dmgFontTall : ClientDmgNumFontPx();
 	const int fontPx = skeeto_damage::FriendlyFireDamageFontPx(basePx);
 	if (fontPx <= 0) return;
+	if (g_dmgFriendlyFireFont && g_dmgFriendlyFireFontTall == fontPx) return;
+	if (!g_surf || g_sktUiFontsHold) return;
+	static int s_attemptEpoch = 0;
+	static int s_attemptSize = 0;
+	if (!g_dmgFriendlyFireFont && s_attemptEpoch == g_sktFontEpoch && s_attemptSize == fontPx) return;
+	s_attemptEpoch = g_sktFontEpoch;
+	s_attemptSize = fontPx;
 	const int flags = kFontFlagAntiAlias | kFontFlagDropShadow | kFontFlagOutline;
-	g_dmgFriendlyFireFont = SurfMakeGameFontRaw(fontPx, 800, flags);
-	g_dmgFriendlyFireFontTall = fontPx;
+	const unsigned long created = SurfMakeGameFontRaw(fontPx, 800, flags);
+	if (created) { g_dmgFriendlyFireFont = created; g_dmgFriendlyFireFontTall = fontPx; }
 }
 
 void HudPanelShadow(int x, int y, int w, int h) {
@@ -27572,13 +27627,13 @@ static constexpr CfgOverrideMenuItem kCfgOverrideMenuItems[] = {
 static_assert(_countof(kCfgOverrideMenuItems) == 5 && _countof(kCfgOverrideMenuItems) <= kMenuItemsPerPage,
 	"cfg override settings must stay within one numbered page");
 
-enum class ClientDmgNumMenuAction : unsigned char { Toggle, CycleCritThresh, CycleCritThresh2 };
+enum class ClientDmgNumMenuAction : unsigned char { Toggle, CycleSize, CycleCritThresh, CycleCritThresh2 };
 struct ClientDmgNumMenuItem { ClientDmgNumMenuAction action; };
 static constexpr ClientDmgNumMenuItem kClientDmgNumMenuItems[] = {
-	{ClientDmgNumMenuAction::Toggle}, {ClientDmgNumMenuAction::CycleCritThresh},
-	{ClientDmgNumMenuAction::CycleCritThresh2},
+	{ClientDmgNumMenuAction::Toggle}, {ClientDmgNumMenuAction::CycleSize},
+	{ClientDmgNumMenuAction::CycleCritThresh}, {ClientDmgNumMenuAction::CycleCritThresh2},
 };
-static_assert(_countof(kClientDmgNumMenuItems) == 3 && _countof(kClientDmgNumMenuItems) <= kMenuItemsPerPage,
+static_assert(_countof(kClientDmgNumMenuItems) == 4 && _countof(kClientDmgNumMenuItems) <= kMenuItemsPerPage,
 	"client damage number settings must stay within one numbered page");
 
 enum class ColorCorrectionMenuAction : unsigned char { ToggleAll, ToggleEntities };
@@ -33538,6 +33593,10 @@ static void MenuPaintEngine() {
 					swprintf_s(buf, 192, UiText(UiId::ClientDmgNumToggle, L"[1] 伤害数字 %s"), onoff(g_optClientDmgNum));
 					rowColor = col(g_optClientDmgNum);
 					break;
+				case ClientDmgNumMenuAction::CycleSize:
+					swprintf_s(buf, 192, UiText(UiId::ClientDmgNumSize, L"[2] 数字大小：%d 像素（-/+ 调节）"), ClientDmgNumFontPx());
+					rowColor = cAdjust;
+					break;
 				case ClientDmgNumMenuAction::CycleCritThresh: {
 					const int thr = ClientDmgCritThreshValue();
 					wchar_t thrBuf[32]{};
@@ -33548,11 +33607,11 @@ static void MenuPaintEngine() {
 						swprintf_s(thrBuf, 32, UiText(UiId::DmgCritThreshGe, L"≥%d"), thr);
 						thrLabel = thrBuf;
 					}
-					swprintf_s(buf, 192, UiText(UiId::DmgCritThreshPageRow, L"[2] 暴击阈值1 %s"), thrLabel);
+					swprintf_s(buf, 192, UiText(UiId::DmgCritThreshPageRow, L"[3] 暴击阈值1 %s"), thrLabel);
 					break;
 				}
 				case ClientDmgNumMenuAction::CycleCritThresh2:
-					swprintf_s(buf, 192, UiText(UiId::DmgCritThresh2PageRow, L"[3] 暴击阈值2 >%d"), ClientDmgCritThresh2Value());
+					swprintf_s(buf, 192, UiText(UiId::DmgCritThresh2PageRow, L"[4] 暴击阈值2 >%d"), ClientDmgCritThresh2Value());
 					break;
 				default:
 					buf[0] = L'\0';
@@ -33565,6 +33624,9 @@ static void MenuPaintEngine() {
 				switch (kClientDmgNumMenuItems[i].action) {
 				case ClientDmgNumMenuAction::Toggle:
 					y = SurfWrapDesign(y - 4, cMuted, UiText(UiId::ClientDmgNumToggleHint, L"    总开关。关闭暴击样式不影响伤害数字本身"), MenuHintGap());
+					break;
+				case ClientDmgNumMenuAction::CycleSize:
+					y = SurfWrapDesign(y - 4, cMuted, UiText(UiId::ClientDmgNumSizeHint, L"    暴击样式会按比例放大"), MenuHintGap());
 					break;
 				case ClientDmgNumMenuAction::CycleCritThresh:
 					y = SurfWrapDesign(y - 4, cMuted, UiText(UiId::DmgCritThreshDesc, L"    显示值达到阈值时用暴击样式，不是爆头判定"), MenuHintGap());
@@ -33747,7 +33809,7 @@ static void MenuPaintEngine() {
 					swprintf_s(buf, 192, UiText(UiId::MenuEnterSettingsFmt, L"[%d] %s 【进入设置】"), row + 1, name);
 					line(y, cText, buf); y += lh;
 					if (item->action == WorldHudMenuAction::OpenPage && item->targetPage == kMenuPageClientDmgNum)
-						desc = UiText(UiId::ClientDmgNumEnter, L"    进入设置开/关与暴击阈值");
+						desc = UiText(UiId::ClientDmgNumEnter, L"    进入设置开/关、数字大小与暴击阈值");
 					y = SurfWrapDesign(y, cMuted, desc, MenuHintGap());
 				} else {
 					const bool enabled = WorldHudMenuItemEnabled(item->action);
@@ -35779,7 +35841,7 @@ static void MenuPaintEngine() {
 				line(y, color, buf); y += lh;
 			}
 			y = SurfWrapDesign(y, cHint, UiText(UiId::CampaignOutlineHint,
-				L"    合作战役与写实模式中存活的本地生还者可用。场上有存活 Tank 时，描边 Tank 可以打的铁，包括警报车、普通车和其他非车模型；没有 Tank 则不显示。Tank 与 Witch 存活时持续描边，惊扰不影响 Witch。范围内持续预警，不受建筑遮挡影响。已有服务器描边保持原样。"), MenuHintGap());
+				L"    合作战役与写实模式中存活的本地生还者可用。场上有存活 Tank 时，描边 Tank 可以打的铁，包括警报车、普通车和其他非车模型；没有 Tank 则不显示。Tank 与 Witch 存活时持续描边，惊扰不影响 Witch。Tank 与 Witch 描边不受距离限制；显示距离只作用于可交互铁。预警不受建筑遮挡影响。已有服务器描边保持原样。"), MenuHintGap());
 			y = SurfWrapDesign(y, cHint, UiText(UiId::CampaignOutlineBindHint,
 				L"    可绑定切换：skeeto_tank_prop_outline / skeeto_witch_outline / skeeto_tank_outline；带 0 或 1 参数可直接关闭或开启。"), MenuHintGap());
 			if (g_campaignOutlineRejected) SurfWrapDesign(y, RGB(255,90,90), UiText(UiId::CampaignOutlineUnavailable, L"    当前客户端描边接口核验失败，功能未生效。"), MenuHintGap());
@@ -35959,6 +36021,7 @@ static void MenuAdjustCurrentPage(int dir) {
 	}
 	if (g_menuPage == kMenuPageLastMusic) { LastMusicAdjustSelected(dir); return; }
 	if (g_menuPage == kMenuPageSafeMusic) { SafeMusicAdjustVolume(dir * g_safeMusicVolumeStep); return; }
+	if (g_menuPage == kMenuPageClientDmgNum) { if (ClientDmgNumCycleSize(dir)) SaveSettings(); return; }
 
 	if (g_menuPage == kMenuPageInteractScan) {
 		const InteractScanMenuItem* item = InteractScanMenuItemAt(g_interactScanSel + 1);
@@ -37886,7 +37949,7 @@ static bool MainUiActionAllowed(int action,bool keyboard) {
 		if(g_mainUiEditActionPage>=0)return action>=880&&action<=898;return (action==738||action==739)||(action>=700&&action<=725)||(action>=kMainUiEditorHitBase&&action<kMainUiEditorHitBase+g_mainUiDraftCount);}
 	if(action==208)return true;
 	if(action==528&&g_mainUiButtonLimit==512&&g_mainUiLayoutCount>256)return false;
-	if(g_mainUiFlyout==12)return (action>=300&&action<309)||action==318||action==319||action==320||action==321||(!keyboard&&action==g_mainUiCustomMenu);
+	if(g_mainUiFlyout==12)return (action>=330&&action<352)||action==318||action==319||action==320||action==321||(!keyboard&&action==g_mainUiCustomMenu);
 	if(g_mainUiPanel==0 && g_mainUiFlyout>=0){auto* b=MainUiLayoutFind(action);if(b)action=b->action;}
 	if ((action==15 || action==24) && (!g_optBackgroundEngine
 		|| !g_backgroundCoreInitialized.load(std::memory_order_acquire)
@@ -38046,7 +38109,8 @@ static void MainUiDrawHome(bool registerButtons) {
 	const float s=a<b ? a : b;
 	auto U=[=](int v){return (int)(v*s+.5f);};
 	const int ox=(g_mainUiSw-U(1040))/2,oy=(g_mainUiSh-U(600))/2;
-	const int rx=ox+U(312),rw=U(728);
+	const bool hubWide=(g_mainUiPanel>=5&&g_mainUiPanel<=7);
+	const int rx=ox+U(hubWide?16:312),rw=U(hubWide?1008:728);
 	const COLORREF accent=MainUiAccentColor(),white=RGB(244,245,246),muted=RGB(180,188,197);
 	auto fill=[](int x,int y,int w,int h,COLORREF color,int alpha) {
 		if (alpha<=0 || w<=0 || h<=0) return;
@@ -38103,15 +38167,13 @@ static void MainUiDrawHome(bool registerButtons) {
 		wchar_t number[16]{}; if(value)swprintf_s(number,L"%d%%",percent);else wcscpy_s(number,L"--");
 		SurfTextAt(g_mainUiFonts[2],rx+U(632),y,hover==action || g_mainUiFocus==action ? accent : white,number);
 	};
-	// Subpages own the screen; keep homepage-only brand chrome off panels.
-	if (!registerButtons && g_mainUiPanel==0 && g_mainUiShowAccentLine)
-		fill(ox,oy+U(101),U(46),U(3),accent,255);
+	// Accent line is a layout element (action 938), edited like version / logo.
 	if(g_mainUiPanel==0) MainUiDrawLayout(registerButtons);
 	else {
-		if (!registerButtons) fill(rx,oy+U(122),rw,U(438),MainUiBackdropColor(accent),MulDiv(232,g_mainUiBackdrop,100));
+		if (!registerButtons) fill(rx,oy+U(hubWide?kMainUiHubPanelY:122),rw,U(hubWide?kMainUiHubPanelH:438),MainUiBackdropColor(accent),MulDiv(232,g_mainUiBackdrop,100));
 		static const UiTextEntry titles[]={{UiId::MainUiBackground,L"主菜单背景"},{UiId::MainUiVolumes,L"分类音量"},{UiId::MainUiCareer,L"生涯档案"},{UiId::MainUiPersonalize,L"主菜单设置"},{UiId::MainUiServerCenter,L"服务器中心"},{UiId::MainUiBattleHistory,L"近期战报"},{UiId::MainUiHudProfiles,L"主菜单方案"},{UiId::MainUiHomeServices,L"主菜单服务"}};
-		text(3,rx+U(28),oy+U(143),white,label(titles[g_mainUiPanel-1]),U(485));
-		button(rx+rw-U(164),oy+U(141),U(136),U(38),13,UiText(UiId::MainUiBackHome,L"返回主菜单"));
+		text(3,rx+U(28),oy+U(hubWide?kMainUiHubTitleY:143),white,label(titles[g_mainUiPanel-1]),U(485));
+		button(rx+rw-U(164),oy+U(hubWide?kMainUiHubBackY:141),U(136),U(38),13,UiText(UiId::MainUiBackHome,L"返回主菜单"));
 		if(g_mainUiPanel>=5) {MainUiHubDraw(registerButtons);}
 		else if (g_mainUiPanel==1) {
 			text(2,rx+U(28),oy+U(207),muted,UiText(UiId::MainUiBackgroundEngine,L"背景引擎"),U(300));
@@ -39095,8 +39157,13 @@ static int FastLoadVpkMission(const char* name,const char* map,skvpkexp::MapSet&
 }
 static void FastLoadAsyncEdge(bool loading) {
 	if(loading) {
+		// Drop the previous map here. Do not SetMap from VEngineClient slot 52:
+		// that path can still return the last chapter while the loading image is
+		// already up, and "skip other map packs" would classify this load against
+		// the old campaign. The current map is set by LevelInitPreEntity or
+		// ObserveBsp once the new chapter is actually known.
+		if(skvpkexp::g_controller.enabled) skvpkexp::g_controller.BeginLoad();
 		if(EngDrawingLoading()) {
-			if(skvpkexp::g_controller.enabled){skvpkexp::g_controller.BeginLoad();if(skvpkexp::g_controller.enabled&1u)FastLoadVpkTarget();}
 			skload::g_nativePreload.Begin();
 			const unsigned experiments=(skload::g_mode.load(std::memory_order_relaxed)>>8)&7u;
 			if(experiments) {
@@ -42337,6 +42404,9 @@ static void MenuProcessKeyImpl(int digit) {
 		case ClientDmgNumMenuAction::Toggle:
 			g_optClientDmgNum = !g_optClientDmgNum;
 			if (!g_optClientDmgNum) ClientUxDmgClearKind(false);
+			break;
+		case ClientDmgNumMenuAction::CycleSize:
+			ClientDmgNumCycleSize(+1);
 			break;
 		case ClientDmgNumMenuAction::CycleCritThresh:
 			g_optClientDmgCritThresh = (g_optClientDmgCritThresh + 1) % kDmgCritThreshN;
@@ -59651,6 +59721,7 @@ static bool CampaignOutlineAcquire(CampaignOutlineSlot& slot, void* entity,
 static constexpr int kCampaignCarCap = 24, kCampaignWitchCap = 8, kCampaignTankCap = 8;
 static constexpr int kCampaignLaserCap = 8;
 static constexpr int kCampaignLaserRange = 2000;
+static constexpr int kCampaignBossOutlineRange = 32767; // Tank/Witch: no client distance gate; glow field still needs a map-scale range
 static int g_campaignLaserModelKey = -1;
 static CampaignOutlineSlot g_campaignCars[kCampaignCarCap], g_campaignWitches[kCampaignWitchCap], g_campaignTanks[kCampaignTankCap];
 static CampaignOutlineSlot g_campaignLasers[kCampaignLaserCap];
@@ -60311,9 +60382,9 @@ static void CampaignOutlinePump() {
 			&& EntRead(entity, g_offIsIncapacitated, &incap) && !incap) {
 			tankPresent = true;
 			tankSlots |= uint32_t(1) << (i - 1);
-			if (g_optCampaignTankBodyOutline && within(entity, g_campaignOutlineRange)) {
+			if (g_optCampaignTankBodyOutline) {
 				const int handle = CampaignOutlineHandle(entity);
-				if (handle) acquire(g_campaignTanks, entity, handle, 3, tankBodyColor, g_campaignOutlineRange);
+				if (handle) acquire(g_campaignTanks, entity, handle, 3, tankBodyColor, kCampaignBossOutlineRange);
 			}
 		}
 	}
@@ -60322,9 +60393,12 @@ static void CampaignOutlinePump() {
 			if (!slot.handle) continue;
 			void* entity = EntFromHandle(slot.handle);
 			if (!entity) { slot = {}; --g_campaignOwnedCount; continue; }
-			const int slotRange = slot.kind == 4 ? kCampaignLaserRange : g_campaignOutlineRange;
+			const int slotRange = slot.kind == 4 ? kCampaignLaserRange
+				: (slot.kind == 2 || slot.kind == 3) ? kCampaignBossOutlineRange
+				: g_campaignOutlineRange;
 			int current[4]{};
-			if (!wanted || !within(entity, slotRange) || !EntReadBlock(entity, g_campaignGlowTypeOffset, current, sizeof(current))
+			const bool inRange = (slot.kind == 2 || slot.kind == 3) || within(entity, slotRange);
+			if (!wanted || !inRange || !EntReadBlock(entity, g_campaignGlowTypeOffset, current, sizeof(current))
 				|| memcmp(current, slot.written, sizeof(current)) != 0
 				|| current[1] != slotRange || current[3] != color
 				|| (slot.kind == 1 && !CampaignOutlineTankProp(entity))
@@ -60360,8 +60434,8 @@ static void CampaignOutlinePump() {
 			if (!within(entity, kCampaignLaserRange) || !CampaignOutlineLaserSight(entity)) continue;
 			acquire(g_campaignLasers, entity, handle, 4, laserColor, kCampaignLaserRange);
 		} else if (witch) {
-			if (!within(entity, g_campaignOutlineRange) || !CampaignOutlineWitchAlive(entity)) continue;
-			acquire(g_campaignWitches, entity, handle, 2, witchColor, g_campaignOutlineRange);
+			if (!CampaignOutlineWitchAlive(entity)) continue;
+			acquire(g_campaignWitches, entity, handle, 2, witchColor, kCampaignBossOutlineRange);
 		} else {
 			if (!within(entity, g_campaignOutlineRange) || !CampaignOutlineTankProp(entity)) continue;
 			acquire(g_campaignCars, entity, handle, 1, propColor, g_campaignOutlineRange);
@@ -62518,7 +62592,7 @@ static constexpr ClientPerfEntry kClientPerfEntries[] = {
 	{ kClientPerfRender, false, "in_usekeyboardsampletime", 0.f },
 	{ kClientPerfThreads, false, "cl_threaded_client_leaf_system", 0.f },
 	{ kClientPerfThreads, false, "cl_threaded_bone_setup", 1.f },
-	{ kClientPerfThreads, false, "cl_threaded_init", 1.f },
+	{ kClientPerfThreads, false, "cl_threaded_init", 0.f }, // do not pin threaded init; it can trip filesystem teardown on the next map load
 	{ kClientPerfThreads, false, "r_queued_post_processing", 0.f },
 	{ kClientPerfThreads, false, "r_queued_decals", 0.f },
 	{ kClientPerfThreads, false, "r_queued_ropes", 1.f },

@@ -76,6 +76,7 @@ static constexpr MainUiActionDef kMainUiActions[]={
  {935,{UiId::MainUiElementHint,L"操作提示（文字元素）"}},
  {936,{UiId::MainUiElementNotice,L"状态提示（文字元素）"}},
  {937,{UiId::MainUiElementFriends,L"正在玩 L4D2 的好友"}},
+ {938,{UiId::MainUiElementAccentLine,L"标识色条（装饰元素）"}},
 };
 static constexpr bool MainUiActionCatalogUnique() {
 	for (int i = 0; i < (int)(sizeof(kMainUiActions) / sizeof(kMainUiActions[0])); ++i)
@@ -95,7 +96,7 @@ static int MainUiActionGroup(int action){
  if(action==1||action==205||action==217||action==209||action==900||action==901||action==206||action==220)return 1;
  if(action==200||action==201||action==202||action==203||action==204||action==207||action==4||action==5)return 2;
  if(action==928||action==929||action==27||action==2||action==3||action==11||action==12||action==210||action==212||action==213||action==214||action==215||action==216)return 3;
- if(action>=930&&action<=937)return 6;
+ if(MainUiIsElement(action))return 6;
  if(action==8||action==208||action==211||action==218||action==219||action==907)return 4;
  return 5;
 }
@@ -114,7 +115,7 @@ static const wchar_t* MainUiSlotTitle(const MainUiLayoutSlot& b){
  if(b.action>=930&&b.action<=937&&b.paramText[0])return b.paramText;
  if(b.text[0])return b.text;
  if(b.action==928){const auto state=SkeetoBackgroundGetPlayback();return !state.available?UiText(UiId::MainUiPlaybackUnavailable,L"MP4 不可用"):state.paused?UiText(UiId::MainUiPlaybackResume,L"继续"):UiText(UiId::MainUiPlaybackPause,L"暂停");}
- if(b.action>=930&&b.action<=937)return MainUiElementText(b.action);
+ if(MainUiIsElement(b.action))return MainUiElementText(b.action);
  if(b.action==218)return UiText(UiId::MainUiExportButton,L"导出主菜单");
  if(b.action==219)return UiText(UiId::MainUiImportButton,L"导入主菜单");
  if(b.action==211)return UiText(UiId::MainUiHudProfiles,L"主菜单方案");
@@ -157,11 +158,14 @@ static void MainUiGameExecute(int action,const char* parameter){
  else if(action==922)snprintf(command,sizeof(command),"playdemo %s",v.token[0]);else return;
  MainUiRestore();g_mainUiFlyout=-1;g_mainUiPressed=-1;EngClientCmdUnrestricted(command);
 }
+static constexpr int kMainUiCustomItemAction=330;
+static constexpr int kMainUiCustomItemMax=22;
+static constexpr int kMainUiCustomServerPageSize=22;
 static bool MainUiLayoutDispatch(int id) {
 	if(g_mainUiPanel!=0)return false;
 	auto* b=MainUiLayoutFind(id);if(!b)return false;if(!b->visible)return true;
 	if(b->action==903){g_mainUiFlyout=g_mainUiFlyout==12&&g_mainUiCustomMenu==id?-1:12;
-		g_mainUiCustomMenu=id;g_mainUiCustomPage=0;g_mainUiFlyAnchor=id;g_mainUiFocus=g_mainUiFlyout<0?id:300;g_mainUiPressed=-1;return true;}
+		g_mainUiCustomMenu=id;g_mainUiCustomPage=0;g_mainUiFlyAnchor=id;g_mainUiFocus=g_mainUiFlyout<0?id:kMainUiCustomItemAction;g_mainUiPressed=-1;return true;}
 	if(b->action==910)return true;
  if(b->action>=911&&b->action<=925){if(!MainUiLayoutParamValid(b->action,b->parameter)){g_mainUiNotice=2;return true;}MainUiGameExecute(b->action,b->parameter);return true;}
 	if(b->action>=904&&b->action<=909){
@@ -184,7 +188,7 @@ struct MainUiSliderCache {unsigned revision=0,version=0;DWORD readAt=0,lastSendA
 static MainUiSliderCache g_mainUiCvarCache[kMainUiLayoutMax]{};
 static MainUiLayoutSlot* MainUiCustomSliderSlot(int action){
  if(g_mainUiEditing||g_mainUiPanel!=0)return nullptr;
- if(g_mainUiFlyout==12 && action>=300 && action<309){int count=0,perPage=MainUiCustomPageSize(),wanted=g_mainUiCustomPage*perPage+action-300;
+ if(g_mainUiFlyout==12 && action>=kMainUiCustomItemAction && action<kMainUiCustomItemAction+kMainUiCustomItemMax){int count=0,perPage=MainUiCustomPageSize(),wanted=g_mainUiCustomPage*perPage+action-kMainUiCustomItemAction;
   for(int i=0;i<g_mainUiLayoutCount;++i){auto& b=g_mainUiLayout[i];if(!b.visible||b.parent!=g_mainUiCustomMenu)continue;if(count++==wanted)return b.action==910?&b:nullptr;}return nullptr;}
  auto* b=MainUiLayoutFind(action);return b&&b->visible&&b->parent<0&&b->action==910?b:nullptr;
 }
@@ -204,7 +208,7 @@ static bool MainUiPlaybackSlider(int action){
  if(g_mainUiEditing)return false;
  if(g_mainUiPanel==1)return action==929;
  if(g_mainUiPanel!=0)return false;
- if(g_mainUiFlyout==12&&action>=300&&action<309){int count=0,wanted=g_mainUiCustomPage*MainUiCustomPageSize()+action-300;for(int i=0;i<g_mainUiLayoutCount;++i){const auto& b=g_mainUiLayout[i];if(!b.visible||b.parent!=g_mainUiCustomMenu)continue;if(count++==wanted)return b.action==929;}return false;}
+ if(g_mainUiFlyout==12&&action>=kMainUiCustomItemAction&&action<kMainUiCustomItemAction+kMainUiCustomItemMax){int count=0,wanted=g_mainUiCustomPage*MainUiCustomPageSize()+action-kMainUiCustomItemAction;for(int i=0;i<g_mainUiLayoutCount;++i){const auto& b=g_mainUiLayout[i];if(!b.visible||b.parent!=g_mainUiCustomMenu)continue;if(count++==wanted)return b.action==929;}return false;}
  auto* b=MainUiLayoutFind(action);return b&&b->visible&&b->parent<0&&b->action==929;
 }
 static void MainUiPlaybackDrag(int action,int x,bool final){
@@ -296,18 +300,19 @@ static void MainUiDrawLayout(bool registration) {
 	if(!registration&&g_mainUiMouseMode&&!g_mainUiUnderlay.load(std::memory_order_relaxed)&&MainUiMouse(&mx,&my))hover=MainUiHit(mx,my);
 	for(int i=0;i<g_mainUiLayoutCount;++i) {
 		const auto& b=g_mainUiLayout[i];if(!b.visible||b.parent>=0)continue;
-        if(b.action>=930&&b.action<=937){if(MainUiElementVisible(b.action)){if(b.action==937)MainUiDrawFriends(b,ox+U(b.x),oy+U(b.y),U(b.w),U(b.h),registration);else if(!registration)MainUiDrawElement(b,ox+U(b.x),oy+U(b.y),U(b.w),U(b.h));}continue;}
+        if(MainUiIsElement(b.action)){if(MainUiElementVisible(b.action)){if(b.action==937)MainUiDrawFriends(b,ox+U(b.x),oy+U(b.y),U(b.w),U(b.h),registration);else if(MainUiIsAccentLine(b.action)){if(!registration)MainUiDrawAccentLine(b,ox+U(b.x),oy+U(b.y),U(b.w),U(b.h));}else if(!registration)MainUiDrawElement(b,ox+U(b.x),oy+U(b.y),U(b.w),U(b.h));}continue;}
 		MainUiDrawSlot(b,ox+U(b.x),oy+U(b.y),U(b.w),U(b.h),registration,hover);
 	}
 }
 static int MainUiCustomChildren(int* indices) {
  int count=0;for(int i=0;i<g_mainUiLayoutCount;++i)if(g_mainUiLayout[i].visible&&g_mainUiLayout[i].parent==g_mainUiCustomMenu)indices[count++]=i;return count;
 }
-static int MainUiCustomPageSize(){for(int i=0;i<g_mainUiLayoutCount;++i)if(g_mainUiLayout[i].visible&&g_mainUiLayout[i].parent==g_mainUiCustomMenu&&(g_mainUiLayout[i].action==900||g_mainUiLayout[i].action==910))return 5;return g_mainUiCustomMenu==217?5:9;}
+static bool MainUiCustomServerList(){if(g_mainUiCustomMenu==217)return true;for(int i=0;i<g_mainUiLayoutCount;++i)if(g_mainUiLayout[i].visible&&g_mainUiLayout[i].parent==g_mainUiCustomMenu&&g_mainUiLayout[i].action==900)return true;return false;}
+static int MainUiCustomPageSize(){if(MainUiCustomServerList())return kMainUiCustomServerPageSize;for(int i=0;i<g_mainUiLayoutCount;++i)if(g_mainUiLayout[i].visible&&g_mainUiLayout[i].parent==g_mainUiCustomMenu&&g_mainUiLayout[i].action==910)return 5;return 9;}
 static void MainUiEditorAddServer(int parent);
 static void MainUiCustomBack() {
  auto* menu=MainUiLayoutFind(g_mainUiCustomMenu);int parent=menu?menu->parent:-1;
- if(parent>=0){g_mainUiCustomMenu=parent;g_mainUiCustomPage=0;g_mainUiFocus=300;}
+ if(parent>=0){g_mainUiCustomMenu=parent;g_mainUiCustomPage=0;g_mainUiFocus=kMainUiCustomItemAction;}
  else {g_mainUiFlyout=-1;g_mainUiFocus=g_mainUiCustomMenu;}g_mainUiPressed=-1;
 }
 static bool MainUiCustomDispatch(int action) {
@@ -315,9 +320,9 @@ static bool MainUiCustomDispatch(int action) {
  if(action==320){g_optMainUiServerQuery=!g_optMainUiServerQuery;MainUiSettingsChanged();++g_mainUiTextRevision;return true;}
  if(action==321){MainUiEditorAddServer(g_mainUiCustomMenu);return true;}
  int indices[kMainUiLayoutMax]{};int count=MainUiCustomChildren(indices),perPage=MainUiCustomPageSize();
- if(action==319){g_mainUiCustomPage=(g_mainUiCustomPage+1)%((count+perPage-1)/perPage? (count+perPage-1)/perPage:1);g_mainUiFocus=300;return true;}
- if(action<300||action>=309)return false;
- int at=g_mainUiCustomPage*perPage+action-300;if(at>=count)return true;
+ if(action==319){g_mainUiCustomPage=(g_mainUiCustomPage+1)%((count+perPage-1)/perPage? (count+perPage-1)/perPage:1);g_mainUiFocus=kMainUiCustomItemAction;return true;}
+ if(action<kMainUiCustomItemAction||action>=kMainUiCustomItemAction+kMainUiCustomItemMax)return false;
+ int at=g_mainUiCustomPage*perPage+action-kMainUiCustomItemAction;if(at>=count)return true;
  int id=g_mainUiLayout[indices[at]].id;if(g_mainUiLayout[indices[at]].action==910)return true;g_mainUiFlyout=-1;
  MainUiLayoutDispatch(id);return true;
 }
@@ -327,25 +332,36 @@ static void MainUiDrawCustomFlyout(bool registration) {
  if(g_mainUiCustomPage<0||g_mainUiCustomPage>=(pages?pages:1))g_mainUiCustomPage=0;
  float s=(g_mainUiSw-48.f)/1040.f;float v=(g_mainUiSh-48.f)/600.f;if(v<s)s=v;
  auto U=[=](int n){return(int)(n*s+.5f);};int ox=(g_mainUiSw-U(1040))/2,oy=(g_mainUiSh-U(600))/2;
- int x=ox+U(312),y=oy+U(122),hover=-1,mx=0,my=0;COLORREF accent=MainUiAccentColor();
+ const bool servers=MainUiCustomServerList();
+ // Server lists reuse the raised wide 2-column chrome from skeeto_mainui_hub.h (16/1008, list 140, footer 510, 11x2=22).
+ int x=ox+U(servers?16:312),y=oy+U(servers?24:122),hover=-1,mx=0,my=0;COLORREF accent=MainUiAccentColor();
  if(!registration){if(!g_mainUiUnderlay&&MainUiMouse(&mx,&my))hover=MainUiHit(mx,my);
-  COLORREF backdrop=MainUiBackdropColor(MainUiSlotColor(menu->color));SurfColor(GetRValue(backdrop),GetGValue(backdrop),GetBValue(backdrop),MulDiv(245,g_mainUiBackdrop,100));SurfFill(x,y,x+U(728),oy+U(558));SurfColor(GetRValue(accent),GetGValue(accent),GetBValue(accent),255);SurfFill(x,y,x+U(3),oy+U(558));
-  MainUiText(g_mainUiFonts[1],x+U(18),y+U(14),accent,MainUiSlotTitle(*menu),U(692));
-  if(!count)MainUiText(g_mainUiFonts[2],x+U(18),y+U(70),RGB(180,188,197),UiText(UiId::MainUiCustomEmpty,L"暂无子项；进入编辑模式后新增按钮。"),U(692));
+  COLORREF backdrop=MainUiBackdropColor(MainUiSlotColor(menu->color));SurfColor(GetRValue(backdrop),GetGValue(backdrop),GetBValue(backdrop),MulDiv(245,g_mainUiBackdrop,100));
+  SurfFill(x,y,x+U(servers?1008:728),oy+U(servers?560:558));SurfColor(GetRValue(accent),GetGValue(accent),GetBValue(accent),255);SurfFill(x,y,x+U(3),oy+U(servers?560:558));
+  MainUiText(g_mainUiFonts[1],x+U(18),oy+U(servers?40:136),accent,MainUiSlotTitle(*menu),U(servers?984:692));
+  if(!count)MainUiText(g_mainUiFonts[2],x+U(18),oy+U(servers?140:192),RGB(180,188,197),UiText(UiId::MainUiCustomEmpty,L"暂无子项；进入编辑模式后新增按钮。"),U(servers?984:692));
  }
- for(int i=0;i<perPage&&g_mainUiCustomPage*perPage+i<count;++i){const auto& b=g_mainUiLayout[indices[g_mainUiCustomPage*perPage+i]];
-  MainUiDrawSlot(b,x+U(18),y+U(53+i*(perPage==5?60:36)),U(b.action==910?(b.w<320?b.w:320):692),U(b.action==910?36:perPage==5?56:32),registration,hover,300+i);}
- bool servers=g_mainUiCustomMenu==217;for(int i=0;i<count;++i)if(g_mainUiLayout[indices[i]].action==900)servers=true;
- if(servers){MainUiLayoutSlot toggle=MainUiLayoutBlank();toggle.font=0;toggle.id=320;
-  MainUiDrawSlot(toggle,x+U(18),oy+U(480),U(330),U(28),registration,hover,-1,-1,UiText(g_optMainUiServerQuery?UiId::MainUiQueryOn:UiId::MainUiQueryOff,g_optMainUiServerQuery?L"状态查询：开":L"状态查询：关"));
-  toggle.id=321;MainUiDrawSlot(toggle,x+U(380),oy+U(480),U(330),U(28),registration,hover,-1,-1,UiText(UiId::MainUiAddServer,L"添加服务器"));
+ if(servers){
+  const int cols=2,gap=24,colW=(984-gap)/2,listY=140,pitch=33,rowH=31;
+  for(int i=0;i<perPage&&g_mainUiCustomPage*perPage+i<count;++i){const auto& b=g_mainUiLayout[indices[g_mainUiCustomPage*perPage+i]];
+   const int col=i%cols,row=i/cols;
+   MainUiDrawSlot(b,x+U(12+col*(colW+gap)),oy+U(listY+row*pitch),U(colW),U(rowH),registration,hover,kMainUiCustomItemAction+i);}
+  const int fy=oy+U(510),btnW=234,btnGap=16;int bx=x+U(12);
+  MainUiLayoutSlot chrome=MainUiLayoutBlank();chrome.font=0;chrome.id=320;
+  MainUiDrawSlot(chrome,bx,fy,U(btnW),U(32),registration,hover,-1,-1,UiText(g_optMainUiServerQuery?UiId::MainUiQueryOn:UiId::MainUiQueryOff,g_optMainUiServerQuery?L"状态查询：开":L"状态查询：关"));
+  bx+=U(btnW+btnGap);chrome.id=321;MainUiDrawSlot(chrome,bx,fy,U(btnW),U(32),registration,hover,-1,-1,UiText(UiId::MainUiAddServer,L"添加服务器"));
+  bx+=U(btnW+btnGap);chrome.id=318;MainUiDrawSlot(chrome,bx,fy,U(btnW),U(32),registration,hover,-1,-1,UiText(UiId::MainUiCustomBack,L"返回上级"));
+  if(pages>1){bx+=U(btnW+btnGap);chrome.id=319;MainUiDrawSlot(chrome,bx,fy,U(btnW),U(32),registration,hover,-1,-1,UiText(UiId::MainUiCustomNext,L"下一页"));}
+ }else{
+  for(int i=0;i<perPage&&g_mainUiCustomPage*perPage+i<count;++i){const auto& b=g_mainUiLayout[indices[g_mainUiCustomPage*perPage+i]];
+   MainUiDrawSlot(b,x+U(18),y+U(53+i*(perPage==5?60:36)),U(b.action==910?(b.w<320?b.w:320):692),U(b.action==910?36:perPage==5?56:32),registration,hover,kMainUiCustomItemAction+i);}
+  MainUiLayoutSlot back=MainUiLayoutBlank();back.id=318;back.font=0;
+  MainUiDrawSlot(back,x+U(18),oy+U(514),U(316),U(32),registration,hover,-1,-1,UiText(UiId::MainUiCustomBack,L"返回上级"));
+  if(pages>1){back.id=319;MainUiDrawSlot(back,x+U(380),oy+U(514),U(330),U(32),registration,hover,-1,-1,UiText(UiId::MainUiCustomNext,L"下一页"));}
  }
- MainUiLayoutSlot back=MainUiLayoutBlank();back.id=318;back.font=0;
- MainUiDrawSlot(back,x+U(18),oy+U(514),U(316),U(32),registration,hover,-1,-1,UiText(UiId::MainUiCustomBack,L"返回上级"));
- if(pages>1){back.id=319;MainUiDrawSlot(back,x+U(380),oy+U(514),U(330),U(32),registration,hover,-1,-1,UiText(UiId::MainUiCustomNext,L"下一页"));}
 }
 static bool MainUiEditorParentAllowed(int parent,int id) {
- for(int i=0;i<g_mainUiDraftCount;++i)if(g_mainUiDraft[i].id==id&&g_mainUiDraft[i].action>=930&&g_mainUiDraft[i].action<=937&&parent>=0)return false;
+ for(int i=0;i<g_mainUiDraftCount;++i)if(g_mainUiDraft[i].id==id&&MainUiIsElement(g_mainUiDraft[i].action)&&parent>=0)return false;
  for(int step=0;parent>=0&&step<kMainUiLayoutMax;++step){if(parent==id)return false;int at=-1;
   for(int i=0;i<g_mainUiDraftCount;++i)if(g_mainUiDraft[i].id==parent)at=i;
   if(at<0||g_mainUiDraft[at].action!=903)return false;parent=g_mainUiDraft[at].parent;
@@ -461,7 +477,7 @@ static void MainUiEditorAction(int action) {
     if(action>=880&&action<889&&g_mainUiEditActionPage>=0){int at=action-880;
         if(g_mainUiEditActionGroup<0)return;
         int indices[sizeof(kMainUiActions)/sizeof(kMainUiActions[0])]{};int count=MainUiActionGroupIndices(g_mainUiEditActionGroup,indices);at+=g_mainUiEditActionPage*9;
-        if(at<count){int chosen=kMainUiActions[indices[at]].action;if(b.action==903&&chosen!=903)MainUiEditorReparentChildren(b.id,b.parent);if(b.action!=chosen){b.parameter[0]=0;b.paramText[0]=0;}b.action=chosen;if(b.action>=930&&b.action<=937)b.parent=-1;else if(b.font>=1008)b.font=1;if(b.action==900){if(b.h<56)b.h=56;}else if(b.action==910){b.w=180;b.h=36;}g_mainUiEditActionPage=-1;g_mainUiEditInputSeed=true;++g_mainUiTextRevision;}return;}
+        if(at<count){int chosen=kMainUiActions[indices[at]].action;if(b.action==903&&chosen!=903)MainUiEditorReparentChildren(b.id,b.parent);if(b.action!=chosen){b.parameter[0]=0;b.paramText[0]=0;}b.action=chosen;if(MainUiIsElement(b.action))b.parent=-1;else if(b.font>=1008)b.font=1;if(b.action==900){if(b.h<56)b.h=56;}else if(b.action==910){b.w=180;b.h=36;}g_mainUiEditActionPage=-1;g_mainUiEditInputSeed=true;++g_mainUiTextRevision;}return;}
     if(action==889||action==890){int indices[sizeof(kMainUiActions)/sizeof(kMainUiActions[0])]{};int count=g_mainUiEditActionGroup<0?7:MainUiActionGroupIndices(g_mainUiEditActionGroup,indices);int pages=(count+8)/9;g_mainUiEditActionPage=(g_mainUiEditActionPage+(action==889?pages-1:1))%pages;return;}
     if(action==891){g_mainUiEditActionPage=-1;g_mainUiEditInputSeed=true;return;}
 	switch(action) {
@@ -609,19 +625,25 @@ static void MainUiDrawEditor(bool registration) {
 	for(int i=0;i<g_mainUiDraftCount;++i){const auto& b=g_mainUiDraft[i];if(b.parent!=viewParent||(!b.visible&&!g_mainUiEditShowHidden))continue;float z=g_mainUiEditCanvasScale;
 		int bx=b.x,by=b.y,bw=b.w,bh=b.h;
 		if(viewParent>=0){int row=childRow++;int selectedRow=0;for(int j=0;j<g_mainUiEditSelected;++j)if(g_mainUiDraft[j].parent==viewParent&&(g_mainUiDraft[j].visible||g_mainUiEditShowHidden))++selectedRow;
-		bool serverMenu=viewParent==217;for(int k=0;k<g_mainUiDraftCount;++k)if(g_mainUiDraft[k].parent==viewParent&&(g_mainUiDraft[k].action==900||g_mainUiDraft[k].action==910))serverMenu=true;int perPage=serverMenu?5:9;if(row/perPage!=selectedRow/perPage)continue;bx=312;by=175+(row%perPage)*(serverMenu?60:36);bw=b.action==910?(b.w<320?b.w:320):728;bh=b.action==910?36:serverMenu?56:32;}
+		bool serverMenu=viewParent==217;for(int k=0;k<g_mainUiDraftCount;++k)if(g_mainUiDraft[k].parent==viewParent&&(g_mainUiDraft[k].action==900||g_mainUiDraft[k].action==910))serverMenu=true;int perPage=serverMenu?kMainUiCustomServerPageSize:9;if(row/perPage!=selectedRow/perPage)continue;if(serverMenu){const int cols=2,gap=24,colW=(984-gap)/2,i=row%perPage,col=i%cols,r=i/cols;bx=28+col*(colW+gap);by=140+r*33;bw=colW;bh=31;}else{bx=312;by=175+(row%perPage)*36;bw=b.action==910?(b.w<320?b.w:320):728;bh=b.action==910?36:32;}}
 		int x=cx+(int)(bx*z+.5f),y=cy+(int)(by*z+.5f),w=(int)(bw*z+.5f),h=(int)(bh*z+.5f);
-		if(registration){if(g_mainUiButtonCount<kMainUiHitMax)g_mainUiButtons[g_mainUiButtonCount++]={x,y,x+w,y+h,kMainUiEditorHitBase+i};continue;}
+		int hitH=h;if(MainUiIsAccentLine(b.action)&&hitH<10)hitH=10;
+		if(registration){if(g_mainUiButtonCount<kMainUiHitMax)g_mainUiButtons[g_mainUiButtonCount++]={x,y,x+w,y+hitH,kMainUiEditorHitBase+i};continue;}
 		COLORREF c=!b.visible?muted:b.color>=0?MainUiSlotColor(b.color):white;
 		int opacity=b.opacity<0?(g_mainUiDraftDefaultBackdrop?0:g_mainUiBackdrop):b.opacity;
 		if(b.visible&&opacity>0)SurfColor(20,25,31,MulDiv(216,opacity,100));
 		else SurfColor(GetRValue(c),GetGValue(c),GetBValue(c),!b.visible?35:i==g_mainUiEditSelected?28:18);
+		if(MainUiIsAccentLine(b.action)){
+			COLORREF bar=b.color>=0?MainUiSlotColor(b.color):accent;int alpha=!b.visible?80:220;
+			SurfColor(GetRValue(bar),GetGValue(bar),GetBValue(bar),alpha);SurfFill(x,y,x+w,y+(h>0?h:1));
+		}else{
 		SurfFill(x,y,x+w,y+h); // Subtle editable bounds, even for text-only buttons.
 		// At small resolutions the engine's 12px font floor exceeds tiny preview
 		// cells. Keep their selectable outlines and show the title in the inspector.
 		if(b.action>=930&&b.action<=937){int px=MainUiElementPixels(b,z);if(px>h-2)px=h-2;if(h>=14)MainUiText(MainUiElementFont(px),x+3,y+2,c,MainUiSlotTitle(b),w-6);}
         else {int tier=b.font>2?1:b.font;if(h>=previewActualPx[tier]+2)MainUiText(previewFonts[tier],x+3,y+2,c,MainUiSlotTitle(b),w-6);}
-		if(i==g_mainUiEditSelected){SurfColor(GetRValue(accent),GetGValue(accent),GetBValue(accent),255);SurfLine(x,y,x+w,y);SurfLine(x+w,y,x+w,y+h);SurfLine(x+w,y+h,x,y+h);SurfLine(x,y+h,x,y);SurfFill(x+w-5,y+h-5,x+w,y+h);}
+		}
+		if(i==g_mainUiEditSelected){int sh=MainUiIsAccentLine(b.action)?hitH:h;SurfColor(GetRValue(accent),GetGValue(accent),GetBValue(accent),255);SurfLine(x,y,x+w,y);SurfLine(x+w,y,x+w,y+sh);SurfLine(x+w,y+sh,x,y+sh);SurfLine(x,y+sh,x,y);SurfFill(x+w-5,y+sh-5,x+w,y+sh);}
 	}
 	wchar_t number[128]{};
 	if(g_mainUiDraftCount){auto& b=g_mainUiDraft[g_mainUiEditSelected];

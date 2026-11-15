@@ -13,7 +13,7 @@ struct MainUiCareerReport {
  CareerArchiveSnapshot stats{};char weaponNames[6][96]{};
  char personaName[128]{};char steamId[32]{};
 };
-constexpr int kMainUiRecentMax=10, kMainUiQueryMax=16, kMainUiProfileMax=12;
+constexpr int kMainUiRecentMax=10, kMainUiQueryMax=22, kMainUiProfileMax=12;
 constexpr int kMainUiProfileBytes=1048576;
 struct MainUiServerRecord {char address[96]{},name[192]{},map[96]{}; uint64_t visited=0;};
 struct MainUiServerStatus {char address[96]{},name[192]{},map[96]{};int state=0,players=0,maxPlayers=0,bots=0,ping=0;uint64_t checked=0;};
