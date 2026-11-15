@@ -15,6 +15,42 @@ Then extract all contents of the new package into the game's root directory. If 
 
 项目开源链接：https://github.com/regoists/Skeeto
 
+## 2.2.19（2026-11-15）
+	Skeeto核心：
+修改：
+- 物资雷达特殊物品图标与数字位置对齐；满烧/高爆的数量与距离矫正。
+- 小地图物资标记改为雷达同款图标，保持原比例；枪械按高度适配，投掷物略放大。图标未就绪时回退为文字。
+- 小地图底部「未找到安全屋标记」改为无底纯文字。
+- 小地图物资一次最多跟踪 128 个；屏幕内标记画在真实投影位置，允许重叠，避免槽位避让造成方位偏移。
+- 世界 HUD 伤害数字大小可调节。
+- 战役（coop/realism）中 Tank/Witch 与激光红点描边不再受客户端显示距离限制；可交互铁仍受距离约束。
+- 服务器中心与自定义主菜单的收藏/近期列表改为抬高宽栏、两列、每页 22 个；状态查询上限同步为 22。编辑画布中的收藏列表预览与运行时一致。
+- 主菜单版本号下的标识色条可在编辑模式中移动、缩放或隐藏。
+- 去掉客户端性能预设里的「线程 / 队列优化」选项，以及对该组相关 ConVar 的钉值逻辑。
+修复：
+- 导演压力 HUD：生还者死亡后强度不归零的问题。
+- 小地图物资图标上传失败时也会占用当帧上传名额，避免同一帧继续尝试后续标记。
+- 预设素材包放到 left4dead2\addons\ 后，需要等模组列表加载完才能被发现的问题；加载结束后会有界补扫。已保存且文件名符合 skeeto_<id>.json 约定的风格可直接读取。若游戏把本地 addons 挂载推迟到返回主菜单，对局中不会强行重挂；文件名不符该约定的样式（如 ci_bfmix、overhaul、hj_kill_main）需等枚举，不靠直读。
+- 小地图自动导航在常见路径上不再误把出生安全屋当成目标（以 PlayerStart 为权威起点，自动目标改为距起点最远的非起点安全屋）。中途第一次启用且地图没有 PlayerStart 时仍可能不准。
+- 伤害数字设置页搜索目录缺少「暴击阈值1」的问题。
+	Skeeto Core:
+Changed:
+- Item radar special item icons aligned with number positions; corrected the count and distance for full-burn/explosive.
+- Minimap supply markers now use the same icons as the item radar and keep their original aspect; guns are sized by height, throwables are slightly enlarged. Falls back to text when artwork is not ready.
+- The minimap bottom "Safehouse marker not found" notice is now plain text with no background.
+- Minimap supply tracking capacity is raised to 128; on-screen markers are drawn at their true projected positions, overlap is allowed, and slot avoidance no longer shifts bearing.
+- World HUD damage number size is now a same-row orange -/+ control, consistent with other bidirectional items (16–36 px, six steps, no wrap at the ends).
+- In campaign (coop/realism), Tank/Witch and laser-sight outlines no longer use a client-side distance cap; interactive iron remains distance-limited.
+- Server-center and custom-menu favorites/recents lists now use a raised wide 2-column layout with 22 entries per page; the status-query cap is raised to 22 to match. The editor-canvas preview of favorites lists matches the runtime layout.
+- The accent line under the main-menu version number can be moved, resized, or hidden in edit mode.
+- Removed the Client Perf "Thread / queue optimization" option and the ConVar pinning for that group.
+Fixed:
+- Director pressure HUD: the issue where intensity does not reset to zero after a survivor dies.
+- A failed minimap supply-icon upload now consumes the per-frame upload slot, so later markers are not retried in the same frame.
+- The issue where the preset asset pack placed in left4dead2\addons\ cannot be discovered until the mod list finishes loading; there will be a boundary rescan after loading ends. Saved styles whose filenames conform to the skeeto_<id>.json convention can be read directly. If the game defers mounting local addons until returning to the main menu, it will not force remount during a match; styles whose filenames do not conform to this convention (such as ci_bfmix, overhaul, hj_kill_main) require waiting for enumeration, not relying on direct reading.
+- Minimap auto-nav no longer commonly targets the spawn saferoom (PlayerStart is the authoritative start; the auto target is now the non-start saferoom farthest from the start). First enabling mid-map on a map without PlayerStart can still be wrong.
+- The damage-number settings page was missing "Crit threshold 1" in the search catalog.
+
 ## 2.2.18（2026-11-14）
 	Skeeto核心：
 修改：
