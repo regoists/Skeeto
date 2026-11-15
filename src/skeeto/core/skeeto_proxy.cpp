@@ -2528,7 +2528,7 @@ static int g_optAlarmCarGlowRange = 2000;         // GlowRange; cycle 1000/1500/
 static int g_optAlarmCarGlowColor = 4;            // acid palette orange (~ref 33023)
 static bool g_alarmCarGlowRejected = false;       // glow native / resolve failed
 static bool g_alarmCarGlowApproxArmed = false;    // client RecvTable lacks m_bDisabled; glass proxy
-enum { kClientPerfGroupCount = 6 };
+enum { kClientPerfGroupCount = 5 };
 static bool g_optClientPerf[kClientPerfGroupCount] = {}; // SkeetoScript Client Perf Presets; all default off
 static bool g_clientPerfDirty = false;
 static bool g_optClientAcidOutline = false;       // Skeetoscript spit acid range estimate (default off)
@@ -4977,9 +4977,8 @@ void SaveSettings() {
 	fprintf(f, "client_perf_particles=%d\n", g_optClientPerf[0] ? 1 : 0);
 	fprintf(f, "client_perf_bones=%d\n", g_optClientPerf[1] ? 1 : 0);
 	fprintf(f, "client_perf_render=%d\n", g_optClientPerf[2] ? 1 : 0);
-	fprintf(f, "client_perf_threads=%d\n", g_optClientPerf[3] ? 1 : 0);
-	fprintf(f, "client_perf_sound=%d\n", g_optClientPerf[4] ? 1 : 0);
-	fprintf(f, "client_perf_listen_net=%d\n", g_optClientPerf[5] ? 1 : 0);
+	fprintf(f, "client_perf_sound=%d\n", g_optClientPerf[3] ? 1 : 0);
+	fprintf(f, "client_perf_listen_net=%d\n", g_optClientPerf[4] ? 1 : 0);
 	fprintf(f, "supply_scan=%d\nsupply_scan_sound=%d\nsupply_scan_fx=%d\nsupply_scan_radius=%d\nsupply_scan_seconds=%d\nsupply_scan_limit=%d\n",
 		g_optSupplyScan ? 1 : 0, g_optSupplyScanSound ? 1 : 0, g_optSupplyScanFx ? 1 : 0,
 		g_supplyScanRadius, g_supplyScanHoldSec, g_supplyScanSlotLimit);
@@ -6376,9 +6375,9 @@ static bool LoadSettingsClientUxLine(const char* line, bool* hadDirectorHud) {
 	if (sscanf(line, "client_perf_particles=%d", &v) == 1) { g_optClientPerf[0] = v != 0; return true; }
 	if (sscanf(line, "client_perf_bones=%d", &v) == 1) { g_optClientPerf[1] = v != 0; return true; }
 	if (sscanf(line, "client_perf_render=%d", &v) == 1) { g_optClientPerf[2] = v != 0; return true; }
-	if (sscanf(line, "client_perf_threads=%d", &v) == 1) { g_optClientPerf[3] = v != 0; return true; }
-	if (sscanf(line, "client_perf_sound=%d", &v) == 1) { g_optClientPerf[4] = v != 0; return true; }
-	if (sscanf(line, "client_perf_listen_net=%d", &v) == 1) { g_optClientPerf[5] = v != 0; return true; }
+	if (sscanf(line, "client_perf_threads=%d", &v) == 1) { return true; } // leftover key, no longer applied
+	if (sscanf(line, "client_perf_sound=%d", &v) == 1) { g_optClientPerf[3] = v != 0; return true; }
+	if (sscanf(line, "client_perf_listen_net=%d", &v) == 1) { g_optClientPerf[4] = v != 0; return true; }
 	if (sscanf(line, "supply_scan=%d", &v) == 1) { g_optSupplyScan = v != 0; return true; }
 	if (sscanf(line, "supply_scan_sound=%d", &v) == 1) { g_optSupplyScanSound = v != 0; return true; }
 	if (sscanf(line, "supply_scan_fx=%d", &v) == 1) { g_optSupplyScanFx = v != 0; return true; }
@@ -26921,7 +26920,7 @@ static constexpr CombatVisualMenuItem kCombatVisualMenuItems[] = {
 	{UiId::Text_a48a3e64, L"[7] 关闭枪械曳光弹 %s", UiId::Text_ce0ce477, L"    开启此项才关闭原版默认显示的第一人称枪械曳光；关闭选项时恢复原值。", UiId{}, L"", CombatVisualMenuAction::ToggleFirstPersonTracers, -1},
 	{UiId::SafeMusicEntry, L"[8] 安全屋结算音乐 【进入设置】", UiId{}, L"", UiId{}, L"", CombatVisualMenuAction::OpenSafeMusic, kMenuPageSafeMusic},
 	{UiId::NativeWorldNamesRow, L"[9] 原版人物ID常驻 %s", UiId::NativeWorldNamesHint, L"    保留原版样式，忽略遮挡、距离和准星范围；最多 8 名幸存者，写实不可用。自绘人物ID生效时优先显示自绘版本。", UiId{}, L"", CombatVisualMenuAction::ToggleNativeWorldNames, -1},
-	{UiId::LaserSightOutline, L"[1] 激光红点常驻描边 %s", UiId::LaserSightOutlineHint, L"    只描边原版模型的地上激光红点，2000 游戏单位内隔墙可见。已拾取或装上武器的不描。只有存活的本地生还者能看到。默认关闭。可绑定 skeeto_laser_outline。", UiId{}, L"", CombatVisualMenuAction::ToggleLaserOutline, -1},
+	{UiId::LaserSightOutline, L"[1] 激光红点常驻描边 %s", UiId::LaserSightOutlineHint, L"    只描边原版模型的地上激光红点，隔墙可见。已拾取或装上武器的不描。只有存活的本地生还者能看到。默认关闭。可绑定 skeeto_laser_outline。", UiId{}, L"", CombatVisualMenuAction::ToggleLaserOutline, -1},
 	{UiId::InteractScanEntry, L"[2] 可交互物品扫描 【进入设置】", UiId::InteractScanEntryHint, L"    按下绑定键后，短暂描边周围按钮、门、动态模型和部分物理/可破坏道具。可误报。默认关闭。绑定 skeeto_interact_scan。音效与特效跟物资扫描开关一致。", UiId{}, L"", CombatVisualMenuAction::OpenInteractScan, kMenuPageInteractScan},
 	{UiId::ScriptGunFeelEntry, L"[3] 枪声听感增强，即Gunshot Feel 【进入设置】", UiId::ScriptGunFeelEntryHint, L"    保留原版开火声，再叠一层明显变调的额外枪声。冲击更高，低频更沉，短尾会再跟一声，亮瞬态更尖。与「优化听声辨位」互斥。", UiId{}, L"", CombatVisualMenuAction::OpenGunFeel, kMenuPageGunFeel},
 };
@@ -27106,16 +27105,15 @@ static void MenuCycleAlarmCarGlowColor() {
 }
 
 enum class ClientPerfMenuAction : unsigned char {
-	ToggleParticles, ToggleBones, ToggleRender, ToggleThreads, ToggleSound, ToggleListenNet
+	ToggleParticles, ToggleBones, ToggleRender, ToggleSound, ToggleListenNet
 };
 struct ClientPerfMenuItem { UiId id; const wchar_t* text; ClientPerfMenuAction action; };
 static constexpr ClientPerfMenuItem kClientPerfMenuItems[] = {
 	{UiId::ClientPerfParticles, L"[1] 粒子 / 特效降负载 %s", ClientPerfMenuAction::ToggleParticles},
 	{UiId::ClientPerfBones, L"[2] 骨骼 / 物理 / 动画降负载 %s", ClientPerfMenuAction::ToggleBones},
 	{UiId::ClientPerfRender, L"[3] 渲染降负载 %s", ClientPerfMenuAction::ToggleRender},
-	{UiId::ClientPerfThreads, L"[4] 线程 / 队列优化 %s", ClientPerfMenuAction::ToggleThreads},
-	{UiId::ClientPerfSound, L"[5] 声音优化 %s", ClientPerfMenuAction::ToggleSound},
-	{UiId::ClientPerfListenNet, L"[6] 本地服网络插值与服端优化 %s", ClientPerfMenuAction::ToggleListenNet},
+	{UiId::ClientPerfSound, L"[4] 声音优化 %s", ClientPerfMenuAction::ToggleSound},
+	{UiId::ClientPerfListenNet, L"[5] 本地服网络插值与服端优化 %s", ClientPerfMenuAction::ToggleListenNet},
 };
 static constexpr int ClientPerfMenuCount() { return (int)_countof(kClientPerfMenuItems); }
 static_assert(ClientPerfMenuCount() == kClientPerfGroupCount && ClientPerfMenuCount() <= kMenuItemsPerPage,
@@ -27128,9 +27126,8 @@ static int ClientPerfGroupFromAction(ClientPerfMenuAction action) {
 	case ClientPerfMenuAction::ToggleParticles: return 0;
 	case ClientPerfMenuAction::ToggleBones: return 1;
 	case ClientPerfMenuAction::ToggleRender: return 2;
-	case ClientPerfMenuAction::ToggleThreads: return 3;
-	case ClientPerfMenuAction::ToggleSound: return 4;
-	case ClientPerfMenuAction::ToggleListenNet: return 5;
+	case ClientPerfMenuAction::ToggleSound: return 3;
+	case ClientPerfMenuAction::ToggleListenNet: return 4;
 	}
 	return 0;
 }
@@ -32934,9 +32931,6 @@ static void MenuPaintEngine() {
 				else if (item->action == ClientPerfMenuAction::ToggleRender)
 					y = SurfWrapDesign(y, cHint, UiText(UiId::ClientPerfRenderHint,
 						L"    阴影 / 雾 / 帧缓冲复制等渲染项。"), MenuHintGap());
-				else if (item->action == ClientPerfMenuAction::ToggleThreads)
-					y = SurfWrapDesign(y, cHint, UiText(UiId::ClientPerfThreadsHint,
-						L"    客户端线程与队列；leaf_system=0 可能负优化。不含 mod_load_*。"), MenuHintGap());
 				else if (item->action == ClientPerfMenuAction::ToggleSound)
 					y = SurfWrapDesign(y, cHint, UiText(UiId::ClientPerfSoundHint,
 						L"    声音异步与 dsp_slow_cpu（可能损听感）。"), MenuHintGap());
@@ -59720,8 +59714,7 @@ static bool CampaignOutlineAcquire(CampaignOutlineSlot& slot, void* entity,
 
 static constexpr int kCampaignCarCap = 24, kCampaignWitchCap = 8, kCampaignTankCap = 8;
 static constexpr int kCampaignLaserCap = 8;
-static constexpr int kCampaignLaserRange = 2000;
-static constexpr int kCampaignBossOutlineRange = 32767; // Tank/Witch: no client distance gate; glow field still needs a map-scale range
+static constexpr int kCampaignBossOutlineRange = 32767; // Tank/Witch/laser: no client distance gate; glow field still needs a map-scale range
 static int g_campaignLaserModelKey = -1;
 static CampaignOutlineSlot g_campaignCars[kCampaignCarCap], g_campaignWitches[kCampaignWitchCap], g_campaignTanks[kCampaignTankCap];
 static CampaignOutlineSlot g_campaignLasers[kCampaignLaserCap];
@@ -60393,11 +60386,10 @@ static void CampaignOutlinePump() {
 			if (!slot.handle) continue;
 			void* entity = EntFromHandle(slot.handle);
 			if (!entity) { slot = {}; --g_campaignOwnedCount; continue; }
-			const int slotRange = slot.kind == 4 ? kCampaignLaserRange
-				: (slot.kind == 2 || slot.kind == 3) ? kCampaignBossOutlineRange
+			const int slotRange = (slot.kind == 2 || slot.kind == 3 || slot.kind == 4) ? kCampaignBossOutlineRange
 				: g_campaignOutlineRange;
 			int current[4]{};
-			const bool inRange = (slot.kind == 2 || slot.kind == 3) || within(entity, slotRange);
+			const bool inRange = (slot.kind == 2 || slot.kind == 3 || slot.kind == 4) || within(entity, slotRange);
 			if (!wanted || !inRange || !EntReadBlock(entity, g_campaignGlowTypeOffset, current, sizeof(current))
 				|| memcmp(current, slot.written, sizeof(current)) != 0
 				|| current[1] != slotRange || current[3] != color
@@ -60431,8 +60423,8 @@ static void CampaignOutlinePump() {
 		void* entity = EntGet(index); if (!entity) continue;
 		const int handle = CampaignOutlineHandle(entity); if (!handle) continue;
 		if (laser) {
-			if (!within(entity, kCampaignLaserRange) || !CampaignOutlineLaserSight(entity)) continue;
-			acquire(g_campaignLasers, entity, handle, 4, laserColor, kCampaignLaserRange);
+			if (!CampaignOutlineLaserSight(entity)) continue;
+			acquire(g_campaignLasers, entity, handle, 4, laserColor, kCampaignBossOutlineRange);
 		} else if (witch) {
 			if (!CampaignOutlineWitchAlive(entity)) continue;
 			acquire(g_campaignWitches, entity, handle, 2, witchColor, kCampaignBossOutlineRange);
@@ -62558,7 +62550,6 @@ enum ClientPerfGroup : unsigned char {
 	kClientPerfParticles = 0,
 	kClientPerfBones,
 	kClientPerfRender,
-	kClientPerfThreads,
 	kClientPerfSound,
 	kClientPerfListenNet,
 };
@@ -62590,17 +62581,6 @@ static constexpr ClientPerfEntry kClientPerfEntries[] = {
 	{ kClientPerfRender, false, "r_fastzreject", -1.f },
 	{ kClientPerfRender, false, "cl_perf_wizard_enable", 1.f },
 	{ kClientPerfRender, false, "in_usekeyboardsampletime", 0.f },
-	{ kClientPerfThreads, false, "cl_threaded_client_leaf_system", 0.f },
-	{ kClientPerfThreads, false, "cl_threaded_bone_setup", 1.f },
-	{ kClientPerfThreads, false, "cl_threaded_init", 0.f }, // do not pin threaded init; it can trip filesystem teardown on the next map load
-	{ kClientPerfThreads, false, "r_queued_post_processing", 0.f },
-	{ kClientPerfThreads, false, "r_queued_decals", 0.f },
-	{ kClientPerfThreads, false, "r_queued_ropes", 1.f },
-	{ kClientPerfThreads, false, "r_threaded_particles", 1.f },
-	{ kClientPerfThreads, false, "r_threaded_shadow_clip", 1.f },
-	{ kClientPerfThreads, false, "r_threadeddetailprops", 1.f },
-	{ kClientPerfThreads, false, "r_threaded_renderables", 1.f },
-	{ kClientPerfThreads, false, "r_threaded_client_shadow_manager", 1.f },
 	{ kClientPerfSound, false, "snd_spatialize_roundrobin", 1.f },
 	{ kClientPerfSound, false, "snd_async_fullyasync", 1.f },
 	{ kClientPerfSound, false, "snd_mix_async", 1.f },
