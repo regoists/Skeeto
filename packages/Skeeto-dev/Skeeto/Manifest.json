@@ -9,17 +9,17 @@
     {
       "relative": "skeeto.dll",
       "role": "core",
-      "hash": "c9d8f8acc7329711cda6a206707bbbac832e100f22191237bfee028003aaac17"
+      "hash": "4d18b7567521c3d5ac15f7e2f057dc0cbb106152cff68628088478f240371068"
     },
     {
       "relative": "bin\\wininet.dll",
       "role": "proxy",
-      "hash": "b92ac1c2d76746290fdb06ea644d62f09f712d60df253d91dc002eb1aef9e32a"
+      "hash": "df2646b4aa6298d13e03f873c100cc2c0881a8e8b2081719bfcc68d3de13dd6a"
     },
     {
       "relative": "VERSION.txt",
       "role": "marker",
-      "hash": "cbbe7c51bd97409f2379ada9cce78d0b4005a08aa30bfff578d57a09219e92c5"
+      "hash": "6d19af4e13289bddf3798bf461168ba8468aa099eaeb0d269c2c70ade2373fe7"
     },
     {
       "relative": "SKEETO_WORKSHOP.txt",
