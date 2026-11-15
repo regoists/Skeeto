@@ -1,5 +1,5 @@
 Skeeto 2.2.19
-released=2026-11-14
+released=2026-11-15
 semver=2.2.19
 module=steam-bootstrap-transactional-update
-note=Discover localized addon asset packs without waiting for the addon-list spinner; director intensity clears on death; item radar 1.5.6 icon and number alignment; minimap supply markers use radar icons at true projected positions
+note=Discover localized addon asset packs without waiting for the addon-list spinner; director intensity clears on death; item radar 1.5.6 alignment; minimap radar-style supply icons; adjustable world-HUD damage number size; campaign Tank/Witch outlines have no client distance cap; minimap auto-nav common saferoom target fix (mid-map first enable without PlayerStart may still be wrong); server lists show 22 per page; version accent line is editable; Client Perf threads no longer pins cl_threaded_init to 1 (mitigation only; the minimap terrain-upload crash path remains open)
