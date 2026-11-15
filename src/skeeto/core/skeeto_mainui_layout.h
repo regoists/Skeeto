@@ -19,12 +19,14 @@ static MainUiLayoutSlot MainUiLayoutBlank(){MainUiLayoutSlot b{};b.w=232;b.h=38;
 static MainUiLayoutSlot g_mainUiLayout[kMainUiLayoutMax]{};
 static int g_mainUiLayoutCount=0;
 static bool g_mainUiHomeDecor=true;
-static bool g_mainUiLayoutRead=false,g_mainUiLayoutBad=false;
+static bool g_mainUiLayoutRead=false,g_mainUiLayoutBad=false,g_mainUiAccentLineMigrated=false;
 static bool g_mainUiLayoutSeen[kMainUiLayoutMax]{};
 static int g_mainUiLayoutVersion=0;
 
 static bool MainUiActionKnown(int action);
 static bool MainUiLayoutActionValid(int action) { return MainUiActionKnown(action); }
+static bool MainUiIsElement(int action){return action>=930&&action<=938;}
+static bool MainUiIsAccentLine(int action){return action==938;}
 // Shared by the default preset and explicit editor insertion, never auto-overwrites a user layout.
 static void MainUiLayoutWebPresets(MainUiLayoutSlot* slots,int* count,int parent) {
  const char* urls[]={"https://www.kitasoda.com/serverList","https://www.kitasoda.com/maps","http://61.147.247.41:23361/","https://niguban.echocn.cn/index.php?p=servers"};
@@ -54,7 +56,7 @@ static void MainUiLayoutDefault(MainUiLayoutSlot* slots,int* count) {
  add(645,904,620,0,0,3,232,36,kSkeetoOpenSourceUrl);
  add(634,905,620,0,0,5,232,36,"left4dead2\\skeeto\\mainmenu\\profiles");add(635,905,620,0,0,5,232,36,"left4dead2\\cfg");
  add(700,930,-1,312,131,5,460,30);add(701,931,-1,312,169,10,460,18);
- add(702,932,-1,0,18,5,280,48);add(703,933,-1,2,72,10,62,18);add(704,934,-1,80,72,10,230,18);
+ add(702,932,-1,0,18,5,280,48);add(703,933,-1,2,72,10,62,18);add(704,934,-1,80,72,10,230,18);add(705,938,-1,0,101,-1,46,3);
  add(706,936,-1,312,568,0,728,22);add(707,937,-1,808,472,6,232,92);
  for(int i=0;i<*count;++i){auto& b=slots[i];b.title[0]=0;b.text[0]=0;if(b.action>=930&&b.action<=937)b.font=1000+(b.action==930?30:b.action==932?44:14);if(b.action==904)b.color=3;}
 }
@@ -65,16 +67,18 @@ static bool MainUiLayoutHasNavigationHint() {
 }
 static void MainUiLayoutReset() {
 	MainUiLayoutDefault(g_mainUiLayout,&g_mainUiLayoutCount);g_mainUiHomeDecor=true;
-	g_mainUiLayoutRead=false;g_mainUiLayoutBad=false;g_mainUiLayoutVersion=0;
+	g_mainUiLayoutRead=false;g_mainUiLayoutBad=false;g_mainUiLayoutVersion=0;g_mainUiAccentLineMigrated=false;
 	memset(g_mainUiLayoutSeen,0,sizeof(g_mainUiLayoutSeen));
 }
 static bool MainUiColorValid(int c){return c>=-1&&c<12||(c>=0x1000000&&c<=0x1ffffff);}
 static void MainUiLayoutClamp(MainUiLayoutSlot& b) {
 	auto clamp=[](int v,int lo,int hi){return v<lo?lo:v>hi?hi:v;};
-	if(!(b.font>=1008&&b.font<=1096))b.font=clamp(b.font,0,2);b.w=clamp(b.w,40,1040);b.h=clamp(b.h,b.action>=930&&b.action<=937?8:b.font==2?38:b.font==1?30:22,540);
+	if(!(b.font>=1008&&b.font<=1096))b.font=clamp(b.font,0,2);
+	if(MainUiIsAccentLine(b.action)){b.w=clamp(b.w,8,1040);b.h=clamp(b.h,1,80);}
+	else {b.w=clamp(b.w,40,1040);b.h=clamp(b.h,b.action>=930&&b.action<=937?8:b.font==2?38:b.font==1?30:22,540);}
 	if(b.action==910){if(b.w<160)b.w=160;if(b.h<36)b.h=36;}
 	if(b.action==929){if(b.w<160)b.w=160;if(b.h<36)b.h=36;}
-	b.x=clamp(b.x,0,1040-b.w);b.y=clamp(b.y,0,(b.action>=930&&b.action<=937?600:578)-b.h);
+	b.x=clamp(b.x,0,1040-b.w);b.y=clamp(b.y,0,(MainUiIsElement(b.action)?600:578)-b.h);
 	b.visible=b.visible?1:0;if(!MainUiColorValid(b.color))b.color=-1;b.opacity=clamp(b.opacity,-1,100);
 }
 // Click-time action specifications; bounded parsing only, no engine work.
@@ -169,7 +173,7 @@ static int MainUiHexDigit(char c) {
 	return c>='0'&&c<='9'?c-'0':c>='A'&&c<='F'?c-'A'+10:c>='a'&&c<='f'?c-'a'+10:-1;
 }
 template<class Append> static bool MainUiLayoutSerialize(Append append) {
- bool ok=append("mainmenu_layout_v=1\nmainmenu_layout_count=%d\nmainmenu_layout_decor=%d\n",g_mainUiLayoutCount,g_mainUiHomeDecor?1:0);
+ bool ok=append("mainmenu_layout_v=1\nmainmenu_layout_count=%d\nmainmenu_layout_decor=%d\nmainmenu_layout_accent_elem=1\n",g_mainUiLayoutCount,g_mainUiHomeDecor?1:0);
  for(int i=0;i<g_mainUiLayoutCount;++i){const auto& b=g_mainUiLayout[i];ok=append("mainmenu_layout_row_%d=%d,%d,%d,%d,%d,%d,%d,%d,%d,%d\n",i,b.id,b.action,b.x,b.y,b.w,b.h,b.visible,b.color,b.opacity,b.font)&&ok;ok=append("mainmenu_layout_parent_%d=%d\n",i,b.parent)&&ok;
   for(int field=0;field<2;++field){const char* text=field?b.parameter:b.title;int length=(int)strlen(text);for(int chunk=0;chunk<(field?8:4);++chunk){char hex[97]{};int n=0;for(int k=chunk*48;k<(chunk+1)*48&&k<length;++k){unsigned c=(unsigned char)text[k];hex[n++]="0123456789ABCDEF"[c>>4];hex[n++]="0123456789ABCDEF"[c&15];}ok=append("mainmenu_layout_%s_%d_%d=%s\n",field?"param":"title",i,chunk,hex)&&ok;}}
  }return ok;
@@ -185,6 +189,7 @@ static bool MainUiLayoutReadLine(const char* line) {
 		if(v<0||v>kMainUiLayoutMax)g_mainUiLayoutBad=true;else g_mainUiLayoutCount=v;return true;
 	}
 	if (sscanf(line,"mainmenu_layout_decor=%d",&v)==1) {g_mainUiHomeDecor=v!=0;return true;}
+	if (sscanf(line,"mainmenu_layout_accent_elem=%d",&v)==1) {g_mainUiAccentLineMigrated=true;return true;}
 	if (sscanf(line,"mainmenu_layout_row_%d=%n",&index,&pos)==1 && pos) {
 		if(index<0||index>=kMainUiLayoutMax){g_mainUiLayoutBad=true;return true;}
 		MainUiLayoutSlot b=MainUiLayoutBlank();b.parent=g_mainUiLayout[index].parent;int* fields[]={&b.id,&b.action,&b.x,&b.y,&b.w,&b.h,&b.visible,&b.color,&b.opacity,&b.font};
@@ -226,7 +231,7 @@ static bool MainUiLayoutFinalize() {
 	bool good=!g_mainUiLayoutBad&&g_mainUiLayoutVersion==1;
 	for(int i=0;i<g_mainUiLayoutCount && good;++i) {
 		auto& b=g_mainUiLayout[i];good=g_mainUiLayoutSeen[i]&&MainUiLayoutActionValid(b.action)
-			&& (!(b.action>=930&&b.action<=937)||b.parent<0)
+			&& (!MainUiIsElement(b.action)||b.parent<0)
 			&& (MainUiLayoutActionValid(b.id)||b.id>=600&&b.id<600+kMainUiLayoutMax);
 		for(int j=0;j<i;++j) if(g_mainUiLayout[j].id==b.id)good=false;
 		if(b.title[0]&&!MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,b.title,-1,b.text,64))good=false;
@@ -243,5 +248,14 @@ static bool MainUiLayoutFinalize() {
  for(int i=0;i<g_mainUiLayoutCount&&good;++i){int at=parents[i],steps=0;while(at>=0){if(at==i||++steps>g_mainUiLayoutCount){good=false;break;}at=parents[at];}}
 
 	if(!good)MainUiLayoutReset();
+	// Older saved layouts have no 938 slot; keep the previous hardcoded bar (0,101,46,3).
+	if(good){
+		bool has=false;for(int i=0;i<g_mainUiLayoutCount;++i)if(MainUiIsAccentLine(g_mainUiLayout[i].action))has=true;
+		if(!has&&!g_mainUiAccentLineMigrated&&g_mainUiLayoutCount<kMainUiLayoutMax){
+			int id=705;for(int offset=0;offset<kMainUiLayoutMax;++offset){int cand=705+(offset%(kMainUiLayoutMax));bool used=false;for(int i=0;i<g_mainUiLayoutCount;++i)if(g_mainUiLayout[i].id==cand)used=true;if(!used){id=cand;break;}}
+			auto& b=g_mainUiLayout[g_mainUiLayoutCount++];b=MainUiLayoutBlank();b.id=id;b.action=938;b.x=0;b.y=101;b.w=46;b.h=3;b.color=-1;b.parent=-1;MainUiLayoutClamp(b);
+		}
+		g_mainUiAccentLineMigrated=true;
+	}
 	return good;
 }

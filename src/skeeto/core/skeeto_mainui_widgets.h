@@ -11,13 +11,14 @@ static const wchar_t* MainUiElementText(int action) {
  case 935:return UiText(UiId::MainUiNavigationHint,L"鼠标 / ↑↓ / Tab / Enter    ←→ 调节滑块    Esc 返回；快捷键在主菜单设置中自定义。");
  case 936:return UiText(UiId::MainUiElementNotice,L"状态提示");
  case 937:return UiText(UiId::MainUiElementFriends,L"正在玩 L4D2 的好友");
+ case 938:return UiText(UiId::MainUiElementAccentLine,L"标识色条");
  }return L"";
 }
 static bool MainUiElementVisible(int action){
  if(action==930||action==931)return g_mainUiHomeDecor&&g_mainUiFlyout<0;
  if(action==932)return g_mainUiShowLogo;if(action==933)return g_mainUiShowVersion;
  if(action==934)return g_mainUiShowGameName;if(action==935)return g_mainUiShowHints;
- if(action==936)return g_mainUiNotice!=0;return g_mainUiFlyout<0;
+ if(action==936)return g_mainUiNotice!=0;if(action==938)return g_mainUiShowAccentLine;return g_mainUiFlyout<0;
 }
 // Fixed two-pixel buckets, at most 91 handles; never allocate by frame/element.
 static unsigned long MainUiElementFont(int px){
@@ -38,6 +39,10 @@ static void MainUiDrawElement(const MainUiLayoutSlot& b,int x,int y,int w,int h)
  const wchar_t* text=b.paramText[0]?b.paramText:b.text[0]?b.text:MainUiElementText(b.action);
  if(b.action==936&&!b.paramText[0]&&!b.text[0])text=g_mainUiNotice==5?UiText(UiId::MainUiHubIoError,L"文件读取、写入或打开失败；请检查路径、文件与权限。"):g_mainUiNotice==3?UiText(UiId::MainUiHubBusy,L"任务队列忙；请稍后重试。"):g_mainUiNotice==4?UiText(UiId::MainUiProfileApplied,L"主菜单方案已应用。"):g_mainUiNotice==2?UiText(UiId::MainUiEditorInvalid,L"内容无效或超长；请检查动作参数或主菜单方案格式。"):UiText(UiId::MainUiNativeUnavailable,L"原生入口未通过兼容核验；可从原版主菜单入口操作。");
  MainUiText(font,x,y,MainUiSlotColor(b.color),text,w);
+}
+static void MainUiDrawAccentLine(const MainUiLayoutSlot& b,int x,int y,int w,int h){
+ if(w<1||h<1)return;COLORREF c=MainUiSlotColor(b.color);int alpha=b.opacity<0?255:MulDiv(255,b.opacity,100);if(alpha<=0)return;
+ SurfColor(GetRValue(c),GetGValue(c),GetBValue(c),alpha);SurfFill(x,y,x+w,y+h);
 }
 
 struct MainUiFriendGame{uint64_t game;uint32_t ip;uint16_t port,query;uint64_t lobby;};

@@ -87,9 +87,24 @@ struct Navigator {
                     unsigned root=Root(i),g=0;for(;g<goalCount&&goals[g].root!=root;++g){}
                     if(g==goalCount){if(goalCount==MaxGoals){overflow=true;continue;}goals[goalCount++]={root,i,0,{},false,(a.spawn&Rescue)!=0};}
                     auto& goal=goals[g];nodes[i].group=int(g);goal.position=goal.position+Center(a);++goal.areas;
-                    if((a.spawn&PlayerStart)||(!goal.rescue&&DistanceSq(a,prepareAnchor)<512*512))goal.start=true;}
+                    if(a.spawn&PlayerStart)goal.start=true;}
                 if(prepareAt<capacity)break;
                 for(unsigned g=0;g<goalCount;++g){goals[g].position=goals[g].position*(1.f/goals[g].areas);goalBest[g]=1e30f;}
+                bool haveStart=false;
+                for(unsigned g=0;g<goalCount;++g)if(goals[g].start){haveStart=true;break;}
+                // PLAYER_START is authoritative. A 512-unit proximity test used
+                // to mark a nearby checkpoint as start, but a late or mid-map
+                // prepare anchor could tag the exit instead. If no flag is present,
+                // mark only the closest non-rescue root to the entry anchor.
+                if(!haveStart){
+                    float nearest=1e30f;int pick=-1;
+                    for(unsigned g=0;g<goalCount;++g){
+                        if(goals[g].rescue||!goals[g].areas)continue;
+                        Vec d=goals[g].position-prepareAnchor;float score=d.Dot(d);
+                        if(score<nearest){nearest=score;pick=int(g);}
+                    }
+                    if(pick>=0)goals[pick].start=true;
+                }
                 preparePhase=6;prepareAt=0;continue;
             }
             if(preparePhase==6){
@@ -109,18 +124,22 @@ struct Navigator {
             // NAVs commonly contain several checkpoint roots plus a rescue area.
             // Auto used to give up whenever more than one non-start root existed,
             // leaving the user with a "choose a safehouse" prompt. Prefer the
-            // nearest checkpoint to the map-entry anchor; only fall back to a
-            // rescue root when no non-start checkpoint is present. The anchor is
-            // fixed for this map, so the choice cannot oscillate as the player moves.
-            bool haveCheckpoint=false;
-            for(unsigned g=0;g<goalCount;++g)
-                if(!goals[g].start&&!goals[g].rescue){haveCheckpoint=true;break;}
-            float best=1e30f;
+            // farthest non-start checkpoint from the start root (or entry anchor),
+            // which is the exit on a linear map. Only fall back to a rescue root
+            // when no non-start checkpoint is present. The start mark and anchor
+            // are fixed for this map, so the choice cannot oscillate as the player moves.
+            bool haveCheckpoint=false;int startIndex=-1;
+            for(unsigned g=0;g<goalCount;++g){
+                if(goals[g].start&&startIndex<0)startIndex=int(g);
+                if(!goals[g].start&&!goals[g].rescue)haveCheckpoint=true;
+            }
+            const Vec origin=startIndex>=0?goals[startIndex].position:prepareAnchor;
+            float best=-1.f;
             for(unsigned g=0;g<goalCount;++g){
                 const Goal& goal=goals[g];
                 if(goal.start||(haveCheckpoint&&goal.rescue))continue;
-                Vec d=goal.position-prepareAnchor;float score=d.Dot(d);
-                if(score<best){best=score;choice=int(g);}
+                Vec d=goal.position-origin;float score=d.Dot(d);
+                if(score>best){best=score;choice=int(g);}
             }
         }
         if(choice!=selected){selected=choice;source=routeSource=nav::Invalid;routeCount=head=tail=routeLadders=routeUnusual=0;edgeCursor=nav::Invalid;building=false;searchPass=SearchPass::Ground;state=State::Ambiguous;++serial;

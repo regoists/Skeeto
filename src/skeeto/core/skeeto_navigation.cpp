@@ -224,9 +224,10 @@ static bool MapPath(const char* name){unsigned n=0;for(;n<sizeof(mapName)-1;++n)
 // The radar needs no NAV mesh (straight-line distance); NAV is only read for the minimap / world route.
 static bool NavWanted(){return settings.enabled!=0||(settings.navigation!=0&&settings.worldNavigation!=0)||progressEnabled||g_bug.enabled;}
 static bool navDeferred;
-static void StartMap(const char* name){navDeferred=false;BugOnMapCleared();supplyradar::ClearMap();EndPositionEdit();CancelRead();navigator.Clear();worldOverlay.Clear();itemCursor=0;modelCheckCount=0;itemClassCount=propertyCount=0;itemSnapshot.count=0;lastItemPoll=lastRoutePoll=0;anchorValid=false;++overlaySerial;mesh.Clear();floorTracker.Reset();sceneValid=terrainValid=false;++meshSerial;liveFrame=false;firstFrameReported=false;settings.goal=0;mapName[0]=0;navPath[0]=0;
+static void StartMap(const char* name){const bool keepAnchor=name&&mapName[0]&&!_stricmp(name,mapName)&&anchorValid;const Vec keptAnchor=sessionAnchor;navDeferred=false;BugOnMapCleared();supplyradar::ClearMap();EndPositionEdit();CancelRead();navigator.Clear();worldOverlay.Clear();itemCursor=0;modelCheckCount=0;itemClassCount=propertyCount=0;itemSnapshot.count=0;lastItemPoll=lastRoutePoll=0;anchorValid=false;++overlaySerial;mesh.Clear();floorTracker.Reset();sceneValid=terrainValid=false;++meshSerial;liveFrame=false;firstFrameReported=false;settings.goal=0;mapName[0]=0;navPath[0]=0;
     ResetProgress();progressRoundEnded=false;navigator.measureLength=progressEnabled;
     if(!name||!MapPath(name)){navStatus=L"地图名不可用";Log("Map path unavailable.");return;}
+    if(keepAnchor){sessionAnchor=keptAnchor;anchorValid=true;}
     if(supplyradar::options::values[supplyradar::options::Enable])supplyradar::StartMapNamed(mapName);
     if(!NavWanted()){navStatus=L"等待地图";navDeferred=true;return;} // radar only: no NAV read or parse
     Log("Loading map NAV: %s",navPath);
