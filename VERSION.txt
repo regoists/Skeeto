@@ -2,4 +2,4 @@ Skeeto 2.2.20
 released=2026-11-18
 semver=2.2.20
 module=steam-bootstrap-transactional-update
-note=Fix Family B map-change crash from viewmodel scale teardown UAF; Tab board credits idle-human kills and rebases checkpoint leftovers; battle archive records finale rescues; minimap supply markers can switch icon/text (default icons) with softer marker plates
+note=Fix Family B map-change crash from viewmodel scale teardown UAF; Tab board credits idle-human kills and rebases checkpoint leftovers; battle archive records finale rescues; minimap supply markers can switch icon/text (default icons, flat text tags); Tab shows loadouts while spectating

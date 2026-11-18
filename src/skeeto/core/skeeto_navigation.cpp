@@ -303,24 +303,31 @@ static void Draw(bool showMap,bool showWorld){performance::Measure timing(paintC
     const bool english=g_uiEnglish.load(std::memory_order_relaxed);
     const bool useIcons=settings.itemStyle==0;
     if(labelRaster!=rasterBuilds||labelOverlay!=overlaySerial||labelSize!=size||labelFont!=targetFont||labelEnglish!=english||labelItemStyle!=settings.itemStyle){
+        if(labelItemStyle!=settings.itemStyle)labelLayout.Clear();
         labelLayout.Build(lastScene,itemSnapshot,settings.navigation?&navigator:nullptr,size,targetFont,useIcons);
         labelRaster=rasterBuilds;labelOverlay=overlaySerial;labelSize=size;labelFont=targetFont;labelEnglish=english;labelItemStyle=settings.itemStyle;
     }
-    if(settings.items)for(int i=0;i<labelLayout.leaderCount;++i){const auto& b=labelLayout.leaders[i];
-        // Soften leader / pin plates so markers read without a heavy plate.
-        Rect(x+b.x,y+b.y,b.w,b.h,145,167,179,b.w==3&&b.h==3?110:70);
+    if(settings.items&&!useIcons)for(int i=0;i<labelLayout.leaderCount;++i){const auto& b=labelLayout.leaders[i];
+        Rect(x+b.x,y+b.y,b.w,b.h,145,167,179,b.w==3&&b.h==3?205:135);
     }
     if(settings.items){
         unsigned iconUploads=1;
         for(int i=0;i<labelLayout.count;++i){const auto& l=labelLayout.labels[i];const auto& b=l.box;
             const int ix=x+b.x,iy=y+b.y,iw=b.w,ih=b.h;
-            if(iw>0&&ih>0){
-                if(useIcons&&supplyradar::DrawMinimapIcon(unsigned(l.label),ix,iy,iw,ih,iconUploads))continue;
-                // Light plate behind text so glyphs stay readable without opaque cards.
-                Rect(ix-1,iy-1,iw+2,ih+2,12,18,22,72);
+            if(iw<=0||ih<=0)continue;
+            if(useIcons){
+                if(supplyradar::DrawMinimapIcon(unsigned(l.label),ix,iy,iw,ih,iconUploads))continue;
                 unsigned color=labelLayout.metrics.Get(l.label).color;
                 TextFit(ix,iy,items::Text(l.label),iw,iw>12?iw-4:12,color);
+                continue;
             }
+            // Pre-icon flat tag: dark plate, type-colour leading bar, full alias text.
+            unsigned color=labelLayout.metrics.Get(l.label).color;
+            Rect(ix+1,iy,iw-2,ih,8,15,20,232);
+            Rect(ix,iy+1,1,ih-2,8,15,20,232);
+            Rect(ix+iw-1,iy+1,1,ih-2,8,15,20,232);
+            Rect(ix+1,iy+3,2,ih-6,(color>>16)&255,(color>>8)&255,color&255,215);
+            Text(ix+5,iy+1,items::Text(l.label),color,l.kind==items::Kind::Weapon?font:supplyFont);
         }
     }
     if(const WCHAR* notice=MapNotice()){
