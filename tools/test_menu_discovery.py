@@ -89,7 +89,7 @@ class DiscoveryCatalog(unittest.TestCase):
             "SoundVolumeUi": {(70, 1, 7)},
             "NavLabel47": {(86, 0, 5)},
             "NavLabel51": {(86, 0, 6)},
-            "NavEdit": {(85, 1, 3)},
+            "NavEdit": {(85, 1, 4)},
             "NavReload": {(86, 0, 4)},
             "NavWorldEdit": {(86, 0, 7)},
             "RadarHomeChanges": {(0, 2, 4)},

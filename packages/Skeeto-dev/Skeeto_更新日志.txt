@@ -15,6 +15,26 @@ Then extract all contents of the new package into the game's root directory. If 
 
 项目开源链接：https://github.com/regoists/Skeeto
 
+## 2.2.20（2026-11-18）
+	Skeeto核心：
+新增：
+- 小地图物资标记可选「图标 / 文字」（默认图标）；文字模式为扁平色条标签，图标模式仍按投影点显示。
+- 近期战报在开启章节统计与记录后，会记录终局救援成功（普通章节过关仍照旧）。
+修改：
+- TAB 闲置生还者的击杀记到对应真人；checkpoint 残留击杀按局基线处理，过图/结算后不再被清成 0。
+修复：
+- 持枪视角缩放在切图释放窗口对失效实体写字段导致的 Family B 闪退（自 2.2.14 引入）。
+- TAB 旁观/进服观战时主武器、副武器与物品列空白。
+	Skeeto Core:
+Added:
+- Minimap supply markers can switch between icons and text (icons by default); text mode uses flat color-bar tags, while icon mode still draws at projected points.
+- With chapter stats and battle recording on, the recent battle archive now also records successful finale rescues (regular chapter clears are unchanged).
+Changed:
+- TAB credits idle-survivor kills to the idle human; checkpoint leftover kills use a per-attempt baseline and no longer zero out after map transition / round end.
+Fixed:
+- Family B crash from writing viewmodel model-scale onto freed entities during map change (introduced in 2.2.14).
+- TAB primary/secondary/item columns staying empty while spectating or joining as a spectator.
+
 ## 2.2.19（2026-11-15）
 	Skeeto核心：
 修改：
@@ -31,8 +51,8 @@ Then extract all contents of the new package into the game's root directory. If 
 - 导演压力 HUD：生还者死亡后强度不归零的问题。
 - 小地图物资图标上传失败时也会占用当帧上传名额，避免同一帧继续尝试后续标记。
 - 预设素材包放到 left4dead2\addons\ 后，需要等模组列表加载完才能被发现的问题；加载结束后会有界补扫。已保存且文件名符合 skeeto_<id>.json 约定的风格可直接读取。若游戏把本地 addons 挂载推迟到返回主菜单，对局中不会强行重挂；文件名不符该约定的样式（如 ci_bfmix、overhaul、hj_kill_main）需等枚举，不靠直读。
-- 小地图自动导航在常见路径上不再误把出生安全屋当成目标（以 PlayerStart 为权威起点，自动目标改为距起点最远的非起点安全屋）。中途第一次启用且地图没有 PlayerStart 时仍可能不准。
-- 伤害数字设置页搜索目录缺少「暴击阈值1」的问题。
+- 小地图自动导航在常见路径上不再误把出生安全屋当成目标（以 PlayerStart 为权威起点，自动目标改为距起点最远的非起点安全屋）。中途第一次启用且地图没有 PlayerStart 时仍可能不准，尚未彻底修好。
+- 伤害数字设置页搜索目录缺少「暴击阈值1」、大小项名称被收成「数字大小： 像素」的问题。
 	Skeeto Core:
 Changed:
 - Item radar special item icons aligned with number positions; corrected the count and distance for full-burn/explosive.
@@ -48,8 +68,8 @@ Fixed:
 - Director pressure HUD: the issue where intensity does not reset to zero after a survivor dies.
 - A failed minimap supply-icon upload now consumes the per-frame upload slot, so later markers are not retried in the same frame.
 - The issue where the preset asset pack placed in left4dead2\addons\ cannot be discovered until the mod list finishes loading; there will be a boundary rescan after loading ends. Saved styles whose filenames conform to the skeeto_<id>.json convention can be read directly. If the game defers mounting local addons until returning to the main menu, it will not force remount during a match; styles whose filenames do not conform to this convention (such as ci_bfmix, overhaul, hj_kill_main) require waiting for enumeration, not relying on direct reading.
-- Minimap auto-nav no longer commonly targets the spawn saferoom (PlayerStart is the authoritative start; the auto target is now the non-start saferoom farthest from the start). First enabling mid-map on a map without PlayerStart can still be wrong.
-- The damage-number settings page was missing "Crit threshold 1" in the search catalog.
+- Minimap auto-nav no longer commonly targets the spawn saferoom (PlayerStart is the authoritative start; the auto target is now the non-start saferoom farthest from the start). First enabling mid-map on a map without PlayerStart can still be wrong; this is not fully fixed.
+- The damage-number settings page was missing "Crit threshold 1" in the search catalog, and the size row name collapsed to "Number size:  px".
 
 ## 2.2.18（2026-11-14）
 	Skeeto核心：

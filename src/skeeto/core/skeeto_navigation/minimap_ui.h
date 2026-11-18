@@ -43,12 +43,18 @@ inline unsigned ItemColor(items::Kind k){
 }
 struct LabelStyle {int width,height;unsigned color;};
 struct LabelMetrics {
-    LabelStyle entries[unsigned(items::Label::Count)]{};int font=0,iconSide=0;unsigned builds=0;
-    void Prepare(int nextFont,int mapSize){
-        if(font==nextFont&&iconSide==mapSize)return;font=nextFont;iconSide=mapSize;++builds;
+    LabelStyle entries[unsigned(items::Label::Count)]{};int font=0,iconSide=0;bool icons=true;unsigned builds=0;
+    void Prepare(int nextFont,int mapSize,bool useIcons){
+        if(font==nextFont&&iconSide==mapSize&&icons==useIcons)return;font=nextFont;iconSide=mapSize;icons=useIcons;++builds;
         for(unsigned i=0;i<unsigned(items::Label::Count);++i){auto label=items::Label(i);bool weapon=label>=items::Label::Weapon;
-            int w=Limit(mapSize/16,12,20),h=w;if(i)supplyradar::MinimapIconSize(i,mapSize,w,h);
-            entries[i]={w,h,ItemColor(weapon?items::Kind::Weapon:items::Kind(i))};}
+            if(useIcons){
+                int w=Limit(mapSize/16,12,20),h=w;if(i)supplyradar::MinimapIconSize(i,mapSize,w,h);
+                entries[i]={w,h,ItemColor(weapon?items::Kind::Weapon:items::Kind(i))};
+            }else{
+                // Pre-icon text tags: weapon uses map font, supplies use SupplyFont.
+                int pixels=weapon?nextFont:SupplyFont(nextFont);
+                entries[i]={LabelWidth(label,pixels)+2,pixels+5,ItemColor(weapon?items::Kind::Weapon:items::Kind(i))};
+            }}
     }
     const LabelStyle& Get(items::Label label)const{return entries[unsigned(label)<unsigned(items::Label::Count)?unsigned(label):unsigned(items::Label::Weapon)];}
 };
@@ -85,8 +91,8 @@ struct LabelLayout {
             AddLeader({ax-1,ay-1,3,3});
         }
     }
-    void Build(const Scene& scene,const items::Snapshot& snapshot,const guidance::Navigator*,int size,int font){
-        metrics.Prepare(font,size);
+    void BuildIcons(const Scene& scene,const items::Snapshot& snapshot,int size,int font){
+        metrics.Prepare(font,size,true);
         previousSize=size;previousFont=font;previousMesh=scene.meshSerial;
         trackedCount=count=hidden=crowded=outside=protectedCount=leaderCount=0;
         float factor=float(size)/Pixels;const auto& v=scene.view;
@@ -98,6 +104,52 @@ struct LabelLayout {
             Box b{ax-w/2,ay-h/2,w,h};
             LabelPlacement fixed{b,m.label,m.kind,m.entity,0,ax,ay};labels[count++]=fixed;tracked[trackedCount++]=fixed;
         }
+    }
+    // Pre-icon text layout: pinned slots, occlusion memory, leader lines.
+    void BuildText(const Scene& scene,const items::Snapshot& snapshot,const guidance::Navigator* n,int size,int font){
+        metrics.Prepare(font,size,false);
+        int oldCount=size==previousSize&&font==previousFont&&scene.meshSerial==previousMesh?trackedCount:0;
+        for(int i=0;i<oldCount;++i)previous[i]=tracked[i];
+        previousSize=size;previousFont=font;previousMesh=scene.meshSerial;
+        trackedCount=count=hidden=crowded=outside=protectedCount=leaderCount=0;float factor=float(size)/Pixels;const auto& v=scene.view;float unit=factor*v.markerScale;
+        Protect({Pixels*.5f,Pixels*.5f},factor,int(15*unit+2.5f));
+        for(int i=0;i<scene.count;++i)Protect(TeamPoint(v,scene.teammates[i]),factor,int(13*unit+2.5f));
+        if(n&&n->selected>=0&&unsigned(n->selected)<n->goalCount)Protect(TargetPoint(v,*n),factor,int(17*unit+2.5f));
+        Protect(NorthPoint(v),factor,int((NorthBadge(v.markerScale)+2)*factor+2.5f));
+        const float labelLimit=TickOuter-2;const int shape=v.shape;
+        int order[items::Capacity],oldSlot[items::Capacity],ordered=0;bool queued[items::Capacity]{},wasOccluded[items::Capacity]{};
+        for(int p=0;p<oldCount;++p)for(int i=0;i<snapshot.count;++i){const auto& m=snapshot.markers[i];const auto& old=previous[p];
+            if(!queued[i]&&m.entity==old.entity&&m.label==old.label&&m.kind==old.kind){order[ordered]=i;wasOccluded[ordered]=old.occluded;oldSlot[ordered++]=old.slot;queued[i]=true;break;}}
+        for(int i=0;i<snapshot.count;++i)if(!queued[i]){order[ordered]=i;oldSlot[ordered++]=-1;}
+        const int directions[8][2]={{0,-1},{1,0},{0,1},{-1,0},{1,-1},{1,1},{-1,1},{-1,-1}};
+        for(int index=0;index<ordered;++index){const auto& m=snapshot.markers[order[index]];Point at=v.Project(m.position.x,m.position.y);
+            int ax=int(at.x*factor+.5f),ay=int(at.y*factor+.5f);
+            const auto& style=metrics.Get(m.label);int w=style.width,h=style.height;
+            bool placed=false;int retained=oldSlot[index];
+            bool offscreen=!InsideShape({ax,ay,1,1},size,shape,labelLimit);
+            if(offscreen&&retained<0){++outside;++hidden;continue;}
+            for(int attempt=retained<0?0:-1;attempt<17;++attempt){int slot=attempt<0?retained:attempt;if(attempt>=0&&slot==retained)continue;
+                int dx=0,dy=0;if(slot){int ring=(slot-1)/8,dir=(slot-1)%8;dx=directions[dir][0]*(w/2+10+ring*18);dy=directions[dir][1]*(h/2+10+ring*18);}
+                Box b{Limit(ax+dx-w/2,5,size-5-w),Limit(ay+dy-h/2,5,size-5-h),w,h};
+                if(retained>=0){
+                    bool blocked=offscreen||!InsideShape(b,size,shape,labelLimit)||Protected(b,wasOccluded[index]?7:3);
+                    for(int j=0;!blocked&&j<count;++j)blocked=b.Overlaps(labels[j].box,wasOccluded[index]?8:4);
+                    LabelPlacement fixed{b,m.label,m.kind,m.entity,slot,ax,ay,blocked};tracked[trackedCount++]=fixed;
+                    if(blocked){++hidden;if(offscreen)++outside;else ++crowded;}
+                    else labels[count++]=fixed;
+                    placed=true;break;
+                }
+                bool reject=!InsideShape(b,size,shape,labelLimit)||Protected(b,6);
+                for(int j=0;!reject&&j<trackedCount;++j)reject=b.Overlaps(tracked[j].box,8);
+                if(!reject){LabelPlacement fixed{b,m.label,m.kind,m.entity,slot,ax,ay};labels[count++]=fixed;tracked[trackedCount++]=fixed;placed=true;break;}
+            }
+            if(!placed){++crowded;++hidden;}
+        }
+        BuildLeaders();
+    }
+    void Build(const Scene& scene,const items::Snapshot& snapshot,const guidance::Navigator* n,int size,int font,bool useIcons=true){
+        if(useIcons)BuildIcons(scene,snapshot,size,font);
+        else BuildText(scene,snapshot,n,size,font);
     }
 };
 }

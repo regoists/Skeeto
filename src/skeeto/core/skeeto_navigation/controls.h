@@ -7,7 +7,8 @@ struct Settings {
     int enabled=0,size=300,range=1200,rotate=1,teammates=1,posX=0,posY=0,opacity=235,navigation=0,goal=0,items=0,itemRange=1200;
     int itemAmmo=1,itemBile=1,itemMolotov=1,itemPills=1,itemMedkit=1,itemPipeBomb=1,itemAdrenaline=1,itemDefib=1,itemLaser=1,itemWeapons=1;
     int weapons[22]={1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1};
-    int worldNavigation=1,refreshFps=10,style=0,worldArrowColor=0,worldHudX=5000,worldHudY=1400,shape=0,worldHud=1,edit=0,reload=0;
+    // itemStyle: 0 icon (default), 1 text — minimap supply markers only.
+    int worldNavigation=1,refreshFps=10,style=0,worldArrowColor=0,worldHudX=5000,worldHudY=1400,shape=0,worldHud=1,itemStyle=0,edit=0,reload=0;
 };
 struct Spec {const char* name;const WCHAR* key;int minimum,maximum;};
 static constexpr Spec specs[]={
@@ -53,11 +54,12 @@ static constexpr Spec specs[]={
     {"skeeto_nav_world_hud_y",L"WorldHudY",0,10000},
     {"skeeto_nav_shape",L"Shape",0,1},
     {"skeeto_nav_world_hud",L"WorldHud",0,1},
+    {"skeeto_nav_item_style",L"ItemStyle",0,1},
     {"skeeto_nav_edit",L"Edit",0,1},
     {"skeeto_nav_reload",L"Reload",0,1}
 };
 constexpr int Count=sizeof(specs)/sizeof(specs[0]);
-constexpr int SizeIndex=1,XIndex=5,YIndex=6,GoalIndex=9,ItemFirstIndex=12,ItemTypeCount=10,WeaponFirstIndex=22,WeaponTypeCount=22,WorldIndex=44,RefreshIndex=45,StyleIndex=46,WorldArrowColorIndex=47,WorldHudXIndex=48,WorldHudYIndex=49,ShapeIndex=50,WorldHudIndex=51,EditIndex=52,ReloadIndex=53;
+constexpr int SizeIndex=1,XIndex=5,YIndex=6,GoalIndex=9,ItemFirstIndex=12,ItemTypeCount=10,WeaponFirstIndex=22,WeaponTypeCount=22,WorldIndex=44,RefreshIndex=45,StyleIndex=46,WorldArrowColorIndex=47,WorldHudXIndex=48,WorldHudYIndex=49,ShapeIndex=50,WorldHudIndex=51,ItemStyleIndex=52,EditIndex=53,ReloadIndex=54;
 constexpr int PersistCount=EditIndex;
 static_assert(sizeof(Settings)==Count*sizeof(int),"Settings layout");
 // Seed granular defaults from the old coarse filter. Individual saved values

@@ -1,5 +1,5 @@
-Skeeto 2.2.19
-released=2026-11-15
-semver=2.2.19
+Skeeto 2.2.20
+released=2026-11-18
+semver=2.2.20
 module=steam-bootstrap-transactional-update
-note=Discover localized addon asset packs without waiting for the addon-list spinner; director intensity clears on death; item radar 1.5.6 alignment; minimap radar-style supply icons; adjustable world-HUD damage number size; campaign Tank/Witch outlines have no client distance cap; minimap auto-nav common saferoom target fix (mid-map first enable without PlayerStart may still be wrong); server lists show 22 per page; version accent line is editable; Client Perf thread/queue option removed; laser-sight outlines have no client distance cap
+note=Fix Family B map-change crash from viewmodel scale teardown UAF; Tab board credits idle-human kills and rebases checkpoint leftovers; battle archive records finale rescues; minimap supply markers can switch icon/text (default icons, flat text tags); Tab shows loadouts while spectating

@@ -201,5 +201,5 @@ static void MainUiHubDraw(bool registration){
  if(g_mainUiPanel==5)button(x+U(28)+inner-U(214),oy+U(kMainUiHubFooterY),U(214),553,UiText(UiId::MainUiAddServer,L"添加服务器"));
  button(x+U(28),oy+U(kMainUiHubFooterY),U(160),549,UiText(UiId::MainUiHubNext,L"下一页"));
  wchar_t page[96]{};swprintf_s(page,L"%d / %d%s%d",g_mainUiHubPage+1,pages,g_mainUiPanel==7?L" | Slot ":L" | ",g_mainUiPanel==7?g_mainUiSaveSlot+1:count);if(!registration)SurfTextAt(g_mainUiFonts[2],x+U(208),oy+U(kMainUiHubFooterY+8),RGB(180,188,197),page);
- text(x+U(28),oy+U(kMainUiHubHintY)-g_mainUiFontPx[2]-U(10),g_mainUiPanel==6?UiText(UiId::MainUiBattleHint,L"需开启章节统计；只记录开启后成功通关的章节与小队数据。") : g_mainUiPanel==7?UiText(UiId::MainUiProfileHint,L"只切换主菜单按钮、子菜单与外观；不修改游戏内 HUD。") : UiText(UiId::MainUiServerHint,L"点击条目重连；地址后可追加 @查询端口；超时不代表离线。"),inner);
+ text(x+U(28),oy+U(kMainUiHubHintY)-g_mainUiFontPx[2]-U(10),g_mainUiPanel==6?UiText(UiId::MainUiBattleHint,L"需开启章节统计；记录开启后成功过关的章节与终局救援，含小队数据。") : g_mainUiPanel==7?UiText(UiId::MainUiProfileHint,L"只切换主菜单按钮、子菜单与外观；不修改游戏内 HUD。") : UiText(UiId::MainUiServerHint,L"点击条目重连；地址后可追加 @查询端口；超时不代表离线。"),inner);
 }

@@ -471,8 +471,8 @@ print(
     f"navigation=4, world HUD={initializer_count(world_items)}, sound volume=17, serialized actions={len(action_ids)}"
 )
 
-assert "kNavDisplaySettings[] = {0, 50, 46, 45, 1, 2, 3, 4, 5, 6, 7, -1}" in PROXY
-assert "g_menuPage == kMenuPageNavDisplay && g_menuSub == 1 && digit == 3" in PROXY
+assert "kNavDisplaySettings[] = {0, 50, 46, 45, 1, 2, 3, 4, 5, 6, 7, 52, -1}" in PROXY
+assert "g_menuPage == kMenuPageNavDisplay && g_menuSub == 1 && digit == 4" in PROXY
 assert "g_menuPage == kMenuPageNavRoute && digit == 4" in PROXY
 assert "g_menuPage == kMenuPageNavRoute && digit == 7" in PROXY
 assert 'MapHudMissionPump((g_optMapHud || g_optTabBoard || g_optChapStats || EscUiWantsMapInfo())' in PROXY

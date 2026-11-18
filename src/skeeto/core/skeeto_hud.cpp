@@ -2284,7 +2284,7 @@ const char* TeamHudModelNameInner(int modelIndex, bool skipLoadGate, bool allowW
 	// Out-of-range model indices (stale weapon / wrong ent) can fault inside engine GetModel.
 	if (modelIndex <= 0 || modelIndex > 8192) return nullptr;
 	if (!g_engine || !EngInGame() || EngDrawingLoading()) return nullptr;
-	// TeamHud inventory paint stays off while spectating; kill-feed death resolve may opt in.
+	// Default path stays quiet while spectating; Tab/kill-feed inventory may opt in.
 	if (!allowWhileSpectating && TeamHudLocalIsSpectating()) return nullptr;
 	if (!skipLoadGate && !TeamHudFullReady(false)) return nullptr;
 	for (int i = 0; i < g_modelNameCacheN; ++i) {
@@ -2377,9 +2377,10 @@ void TeamHudFillMeleeStem(int wepIdx, char* out, int outN, bool forDeathEvent) {
 	if (!forDeathEvent && !EntNetworkable(wepIdx)) return;
 	int* pm = (int*)((uint8_t*)wep + g_offModelIndex);
 	if (!PtrCommitted(pm) || *pm <= 0 || *pm > 8192) return;
+	// Inventory consumers (Tab board while spectating) need the stem; paint gates stay elsewhere.
 	const char* model = forDeathEvent
 		? TeamHudModelNameInner(*pm, true, true)
-		: TeamHudModelName(*pm);
+		: TeamHudModelNameInner(*pm, false, true);
 	if (!model) return;
 	TeamHudMeleeStemFromModel(model, out, outN);
 }
@@ -2420,7 +2421,7 @@ void TeamHudReadWeps(void* e, TeamHudSlot* s) {
 	s->kit = TW_None;
 	s->pills = TW_None;
 	s->melee[0] = 0;
-	if (TeamHudLocalIsSpectating()) return;
+	// Spectating still needs other players' loadouts for Tab; Team/Item HUD paint stays gated.
 	if (!e || !EntReadable(e)) return;
 	int pri = TW_None, side = TW_None;
 	int priIdx = 0, sideIdx = 0;
@@ -2501,10 +2502,6 @@ void TeamHudReadWepsCached(void* e, int entIdx, TeamHudSlot* s,
 	if (maxAgeMs < 16u) maxAgeMs = 16u;
 	if (maxAgeMs > 1000u) maxAgeMs = 1000u;
 	TeamHudGearCache& c = g_teamHudGearCache[entIdx];
-	if (TeamHudLocalIsSpectating()) {
-		if (c.pawn == e) TeamHudCopyGear(s, c.gear);
-		return;
-	}
 	const DWORD now = GetTickCount();
 	const DWORD remain = c.nextReadAt ? (c.nextReadAt - now) : 0u;
 	if (c.pawn != e || !c.nextReadAt || (LONG)(now - c.nextReadAt) >= 0
