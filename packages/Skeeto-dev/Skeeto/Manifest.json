@@ -4,22 +4,22 @@
   "update_protocol": 1,
   "requires_manual_migrate": false,
   "install_layout": 2,
-  "semver": "2.2.19",
+  "semver": "2.2.20",
   "files": [
     {
       "relative": "skeeto.dll",
       "role": "core",
-      "hash": "4d18b7567521c3d5ac15f7e2f057dc0cbb106152cff68628088478f240371068"
+      "hash": "5c0defafd644259474afed1c5d688c06603981bbe02338299067772c729e2bd9"
     },
     {
       "relative": "bin\\wininet.dll",
       "role": "proxy",
-      "hash": "df2646b4aa6298d13e03f873c100cc2c0881a8e8b2081719bfcc68d3de13dd6a"
+      "hash": "d7234d2eaefae0ff8482e759e092675e3005702219e0a47e60f37eca5245855e"
     },
     {
       "relative": "VERSION.txt",
       "role": "marker",
-      "hash": "6d19af4e13289bddf3798bf461168ba8468aa099eaeb0d269c2c70ade2373fe7"
+      "hash": "59647437e190dc2d4d4ae080930e652c1a54374e4fc385096ce2a4ac4cafa74b"
     },
     {
       "relative": "SKEETO_WORKSHOP.txt",

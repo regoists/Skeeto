@@ -1064,6 +1064,7 @@ static void TabBoardPaint();
 static void TabBoardTick();
 static void TabBoardOnToggle();
 static void TabBoardKillsClear();
+static bool g_tbCkptSubtractBase = false;
 static void TabBoardCountKill(int uid, bool si);
 static void TabBoardOnPlayerDeath(void* ev);
 static void SkCmd_TabDown(int* cmd);
@@ -1075,6 +1076,7 @@ static void ChapStatsNativeTick();
 static void ChapStatsNatRelease();
 static void ChapStatsFreeze();
 static void ChapStatsFreezeData(bool refreshPlayers);
+static void ChapStatsRefreshPlayers();
 static void ChapStatsWarmAfterFreeze();
 static void ChapStatsTransitionPaint(int mode);
 static bool ChapStatsPaint(bool quiet);
@@ -16031,6 +16033,7 @@ static void __fastcall Hooked_LevelInitPreEntity(void* ecx, void* edx, const cha
 	CrashMark(kBcLevelInit);
 	// round_start is not guaranteed across chapter loads; retire TAB's per-round counters here too.
 	TabBoardKillsClear();
+	g_tbCkptSubtractBase = false;
 	// Coalesce all chapter-edge event-manager/recv resets onto the next Paint.
 	// LevelInit is a game-thread hook, but the event manager can still rebuild
 	// later in the transition; the Paint pump is the stable common boundary.
@@ -25933,6 +25936,7 @@ static const UiTextEntry kNavUiLabels[] = {
 	{UiId::NavLabel49, L"路线 HUD 纵向位置"},
 	{UiId::NavLabel50, L"小地图形状"},
 	{UiId::NavLabel51, L"路线导航 HUD"},
+	{UiId::NavLabel52, L"物资标记样式"},
 };
 static_assert(sizeof(kNavUiLabels)/sizeof(kNavUiLabels[0]) == skeeto_nav::kSettingCount, "navigation menu labels");
 struct NavCategoryItem {
@@ -25957,13 +25961,14 @@ static constexpr bool NavCategoryItemsUnique() {
 }
 static_assert(NavCategoryItemCount() == 4, "navigation root item count changed; review key mapping");
 static_assert(NavCategoryItemsUnique(), "duplicate navigation root target page");
-static constexpr int kNavDisplaySettings[] = {0, 50, 46, 45, 1, 2, 3, 4, 5, 6, 7, -1};
+static constexpr int kNavDisplaySettings[] = {0, 50, 46, 45, 1, 2, 3, 4, 5, 6, 7, 52, -1};
 static constexpr int kNavDisplayItemCount = (int)_countof(kNavDisplaySettings);
 static constexpr int kNavRefreshSetting = 45;
 static constexpr int kNavStyleSetting = 46;
 static constexpr int kNavShapeSetting = 50;
 static constexpr int kNavArrowColorSetting = 47;
 static constexpr int kNavWorldHudSetting = 51;
+static constexpr int kNavItemStyleSetting = 52;
 static int g_navMenuSel = 0;
 static const wchar_t* NavArrowColorName(int value) {
 	static const UiTextEntry names[] = {
@@ -29867,6 +29872,10 @@ static void MenuPaintEngine() {
 							swprintf_s(buf, 192, L"[%d] %s [%s]", row + 1, name,
 								UiText(value ? UiId::NavMapStyleTactical : UiId::NavMapStyleClassic,
 									value ? L"战术夜视" : L"经典"));
+						else if (index == kNavItemStyleSetting)
+							swprintf_s(buf, 192, L"[%d] %s [%s]", row + 1, name,
+								UiText(value ? UiId::NavItemStyleText : UiId::NavItemStyleIcon,
+									value ? L"文字" : L"图标"));
 						else if (skeeto_nav::Maximum(index) == 1)
 							swprintf_s(buf, 192, L"[%d] %s %s", row + 1, name, onoff(value != 0));
 						else if (index == 9 && value == 0)
@@ -29877,10 +29886,10 @@ static void MenuPaintEngine() {
 						else
 							swprintf_s(buf, 192, UiText(UiId::NavRefreshRow, L"[%d] %s [%d]  - / + 调节"), row + 1, name, value);
 						line(52 + row * rh, (skeeto_nav::Maximum(index) != 1 || index == kNavArrowColorSetting) ? cAdjust
-							: (index == kNavShapeSetting || index == kNavStyleSetting) ? cText : col(value != 0), buf);
-					} else if (g_menuPage == kMenuPageNavDisplay && g_menuSub == 1 && row == 2) {
+							: (index == kNavShapeSetting || index == kNavStyleSetting || index == kNavItemStyleSetting) ? cText : col(value != 0), buf);
+					} else if (g_menuPage == kMenuPageNavDisplay && g_menuSub == 1 && row == 3) {
 						line(52 + row * rh, skeeto_nav::Enabled() ? cText : cMuted,
-							UiText(UiId::NavEdit, L"[3] 编辑小地图位置"));
+							UiText(UiId::NavEdit, L"[4] 编辑小地图位置"));
 					} else if (g_menuPage == kMenuPageNavRoute && row == 3) {
 						line(52 + row * rh, skeeto_nav::Active() ? cText : cMuted,
 							UiText(UiId::NavReload, L"[4] 重新读取 NAV"));
@@ -40556,7 +40565,7 @@ static void MenuProcessKeyImpl(int digit) {
 			g_navMenuSel = index;
 			if (skeeto_nav::Maximum(index) == 1) NavMenuAdjust(+1);
 			EngClientCmd("play buttons/button14");
-		} else if (g_menuPage == kMenuPageNavDisplay && g_menuSub == 1 && digit == 3 && skeeto_nav::Enabled()) {
+		} else if (g_menuPage == kMenuPageNavDisplay && g_menuSub == 1 && digit == 4 && skeeto_nav::Enabled()) {
 			g_navMenuSel = -1;
 			MenuToggle();
 			skeeto_nav::BeginEdit();
@@ -47021,15 +47030,18 @@ static DWORD g_tbAvRetryAt = 0;
 static bool g_tbVanillaOn = false;
 
 // ---- kill counters (event ingest; only while the board option is on) --------
-struct TabKillRec { int userid; int ci; int si; int sk; };
+struct TabKillRec { int userid; int ci; int si; int sk; int ciBase; int siBase; bool ckptArmed; };
 static TabKillRec g_tbKills[64];
 static int g_tbKillN = 0;
 
 static void TabBoardKillsClear() { g_tbKillN = 0; }
+static int TabBoardCreditUid(int uid);
 
 // kind: 0 common, 1 special, 2 survivor (killed by an infected player)
 static void TabBoardCountKindKill(int uid, int kind) {
 	if (!g_optTabBoard || uid <= 0) return;
+	uid = TabBoardCreditUid(uid);
+	if (uid <= 0) return;
 	int n = g_tbKillN;
 	if (n < 0 || n > 64) n = 0;
 	int i = 0;
@@ -47037,7 +47049,7 @@ static void TabBoardCountKindKill(int uid, int kind) {
 		if (g_tbKills[i].userid == uid) break;
 	if (i == n) {
 		if (n >= 64) return;
-		g_tbKills[n] = TabKillRec{ uid, 0, 0, 0 };
+		g_tbKills[n] = TabKillRec{ uid, 0, 0, 0, 0, 0, false };
 		g_tbKillN = n + 1;
 	}
 	if (kind == 1) ++g_tbKills[i].si;
@@ -47048,6 +47060,8 @@ static void TabBoardCountKindKill(int uid, int kind) {
 static void TabBoardCountKill(int uid, bool si) { TabBoardCountKindKill(uid, si ? 1 : 0); }
 
 static void TabBoardUncountCiKill(int uid) {
+	if (uid <= 0) return;
+	uid = TabBoardCreditUid(uid);
 	if (uid <= 0) return;
 	int n = g_tbKillN;
 	if (n < 0 || n > 64) n = 0;
@@ -47672,6 +47686,27 @@ static int TabReadInt(void* e, int off, int dflt) {
 	return PtrCommitted(p) ? *p : dflt;
 }
 
+static int TabBoardIdleHumanUid(void* botEnt) {
+	if (!botEnt || g_tbOffHumanSpecUid < 0) return 0;
+	const int hu = TabReadInt(botEnt, g_tbOffHumanSpecUid, 0);
+	return hu > 0 ? hu : 0;
+}
+
+static int TabBoardCreditUid(int uid) {
+	if (uid <= 0) return uid;
+	if (!g_tbPrOffsDone) TabPrResolveOffsets();
+	const int ent = EngPlayerForUserID(uid);
+	if (ent <= 0) return uid;
+	void* e = EntGet(ent);
+	if (!e || !EntReadable(e)) return uid;
+	// Idle-human credit only applies to survivor bots; infected AI must not remap kills.
+	if (g_offTeam >= 0 && TabReadInt(e, g_offTeam, 0) != 2) return uid;
+	PlayerInfo pi{};
+	if (!EngPlayerInfo(ent, &pi) || !PlayerInfoIsBot(pi)) return uid;
+	const int hu = TabBoardIdleHumanUid(e);
+	return hu > 0 ? hu : uid;
+}
+
 static int TabReadByte(void* e, int off, int dflt) {
 	if (!e || off < 0 || off > 0x4000) return dflt;
 	const uint8_t* p = (const uint8_t*)e + off;
@@ -47881,7 +47916,6 @@ static void TabBoardGather() {
 			int ping = -1;
 			if (TabPrRead(pr, g_tbPrPing, i, &ping) && ping >= 0 && ping < 2000) r.ping = ping;
 		}
-		TabBoardKillsFor(pi.userid, &r.ci, &r.si, &r.sk);
 		if (team == 2) {
 			if (nSurv >= kTabRowsMax) continue;
 			int prop = -1;
@@ -47932,8 +47966,10 @@ static void TabBoardGather() {
 					TabBoardRow tmp{};
 					TabBoardName(tmp, hp, nullptr);
 					swprintf_s(r.name, 40, UiText(UiId::Text_07846cc7, L"闲置：%.19s"), tmp.name);
+					memcpy(&r.acct, hp.pad1 + 36, sizeof(r.acct));
 				}
 			}
+			TabBoardKillsFor(TabBoardCreditUid(pi.userid), &r.ci, &r.si, &r.sk);
 			g_tbRows[nSurv++] = r;
 			if (bot) ++g_tbBotN;
 			else ++g_tbHumanN;
@@ -47959,6 +47995,7 @@ static void TabBoardGather() {
 			// with SI status off only human infected (versus) are listed.
 			if (bot && (r.dead || !g_tabBoardSiStatus || zc == 0)) continue;
 			TabBoardName(r, pi, nullptr);
+			TabBoardKillsFor(TabBoardCreditUid(pi.userid), &r.ci, &r.si, &r.sk);
 			g_tbTmpInf[nInf++] = r;
 			if (r.local) g_tbLocalInfected = true;
 			if (bot) ++g_tbBotN;
@@ -48682,13 +48719,14 @@ static void TabBoardPaint() {
 //   player_hurt / infected_hurt are "local" (never networked). Survivor FF damage
 //   uses the distinct networked player_hurt_concise event through the bounded Paint queue.
 // Records: fixed 32 slots keyed by userid (friendsID re-checked); no allocation in
-// Event or Paint. Only map_transition (safe-room chapter exit) requests a freeze;
-// finales / rescue wins are deliberately not handled (user decision: servers
-// usually have no such layer). Paint executes the freeze next frame with one
-// bounded 1..32 player scan and copies live -> snapshot. The snapshot is drawn
-// from the door closing, through the not-in-game level change, until the next
-// chapter is visually live; meanwhile the stock SurvivorHighlightStatsPanel
-// (child of the client viewport panel transition_stats) is parked.
+// Event or Paint. map_transition (safe-room chapter exit) requests a freeze for
+// the transition HUD. Finale / rescue escapes do not open that settle panel, but
+// the battle archive still records them via finale_win / finale_vehicle_leaving.
+// Paint executes the freeze next frame with one bounded 1..32 player scan and
+// copies live -> snapshot. The snapshot is drawn from the door closing, through
+// the not-in-game level change, until the next chapter is visually live; meanwhile
+// the stock SurvivorHighlightStatsPanel (child of the client viewport panel
+// transition_stats) is parked.
 // Score: optional overview page (default on) ranks by total points; weights live
 // in skeeto_chapstats_score.ini next to skeeto_setting.ini (reload command below).
 // =============================================================================
@@ -49380,23 +49418,58 @@ static void ChapStatsCkptPaintPump() {
 				if (CkptReadIntField(e, g_offCheckpointDamageToWitch, &v)) r->st[kCsWitchDmg] = v;			}
 		}
 		if (wantTab) {
+			// After a wipe, some clients keep leftover m_checkpointZombieKills.
+			// Subtract the first sample for this attempt, and rebase if the engine later drops.
+			int uid = pi.userid;
 			int ci = zk[0];
 			int si = 0;
 			for (int k = 1; k < kCkptZkN; ++k) si += zk[k];
+			if (PlayerInfoIsBot(pi)) {
+				const int hu = TabBoardIdleHumanUid(e);
+				if (hu > 0) {
+					uid = hu;
+					const int he = EngPlayerForUserID(hu);
+					void* hs = he > 0 ? EntGet(he) : nullptr;
+					int zkH[kCkptZkN]{};
+					if (hs && EntReadable(hs) && CkptReadZombieKills(hs, zkH)) {
+						int ciH = zkH[0], siH = 0;
+						for (int k = 1; k < kCkptZkN; ++k) siH += zkH[k];
+						// Prefer the idle human's ledger only when it has counts; keep bot totals otherwise.
+						if (ciH > 0 || siH > 0) { ci = ciH; si = siH; }
+					} else if (ci <= 0 && si <= 0) {
+						continue;
+					}
+				}
+			}
 			int n = g_tbKillN;
 			if (n < 0 || n > 64) n = 0;
 			int slot = -1;
 			for (int j = 0; j < n; ++j) {
-				if (g_tbKills[j].userid == pi.userid) { slot = j; break; }
+				if (g_tbKills[j].userid == uid) { slot = j; break; }
 			}
 			if (slot < 0) {
 				if (n >= 64 || (ci <= 0 && si <= 0)) continue;
-				g_tbKills[n] = TabKillRec{ pi.userid, 0, 0, 0 };
+				g_tbKills[n] = TabKillRec{ uid, 0, 0, 0, 0, 0, false };
 				slot = n;
 				g_tbKillN = n + 1;
 			}
-			g_tbKills[slot].ci = ci;
-			g_tbKills[slot].si = si;
+			TabKillRec& rec = g_tbKills[slot];
+			if (!rec.ckptArmed) {
+				if (g_tbCkptSubtractBase) {
+					rec.ciBase = ci;
+					rec.siBase = si;
+				} else {
+					rec.ciBase = 0;
+					rec.siBase = 0;
+				}
+				rec.ckptArmed = true;
+			} else if (ci < rec.ciBase || si < rec.siBase) {
+				// Engine dropped leftover totals mid-attempt — rebase independently.
+				if (ci < rec.ciBase) rec.ciBase = ci;
+				if (si < rec.siBase) rec.siBase = si;
+			}
+			rec.ci = ci - rec.ciBase;
+			rec.si = si - rec.siBase;
 		}
 	}
 }
@@ -50154,8 +50227,8 @@ static void ChapStatsTick() {
 	// Freeze ASAP (even mid-load / !inGame): map_transition may be followed by
 	// loading before another in-game Paint, and round_start would wipe live data.
 	if (g_csFreezePending) ChapStatsFreeze();
-	// Finale wins have no map_transition freeze. Resolve their roster once on
-	// Paint, without changing the chapter HUD's settle display.
+	// Finale / rescue escapes have no map_transition freeze. Event may already
+	// have captured; Paint retries once if the roster was not ready yet.
 	if (g_mainUiBattlePending) {
 		ChapStatsRefreshPlayers();
 		MainUiHubCaptureLive(0);
@@ -57022,9 +57095,17 @@ static void ViewModelScaleBones(float (*bones)[3][4], const unsigned* flags, int
 static void ViewModelScaleFieldPump(bool wanted) {
     g_vmScaleUseBones = wanted
         && (ViewModelSlotNeedsBoneScale(0, true) || ViewModelSlotNeedsBoneScale(1, true));
+    // Teardown/disable must not touch entity memory: Host_NewGame Free can
+    // invalidate g_vmBindings[].entity before Paint clears them. Writing
+    // m_flModelScale into that window is the 2.2.14 Family B UAF path.
+    if (!wanted) {
+        g_vmScaleLastWrite[0] = g_vmScaleLastWrite[1] = 1.f;
+        return;
+    }
     // Keep m_flModelScale at 1.0 so a sticky field value cannot fight or double bone scale.
     if (g_offModelScale < 0 || g_offModelScale > 0x2000) return;
     if (g_paintTid && GetCurrentThreadId() != g_paintTid) return;
+    if (!g_engine || !EngConnected() || !EngInGame() || EngDrawingLoading()) return;
     for (int i = 0; i < 2; ++i) {
         void* entity = g_vmBindings[i].entity;
         if (!entity) { g_vmScaleLastWrite[i] = 1.f; continue; }
@@ -57330,23 +57411,30 @@ static void ViewModelGamePump() {
         ViewModelRequestSave();
     const bool wanted = g_vmEnabled && g_run.load(std::memory_order_relaxed) && SkeetoFeaturesOn();
     if (!wanted) {
+        // Drop entity pointers before any scale/mirror teardown work.
+        g_vmLocal = nullptr; for (auto& b : g_vmBindings) { b = {}; b.profile = -1; }
         ViewModelScaleFieldPump(false);
         ViewModelMirrorPump(false);
         ViewModelRemove();
     }
-    if ((!wanted && !menu) || !g_paintInGame.load(std::memory_order_relaxed)
+    // Live engine edge: g_paintInGame can lag one Paint behind disconnect/Free.
+    const bool worldLive = g_engine && EngConnected() && EngInGame() && !EngDrawingLoading();
+    if ((!wanted && !menu) || !g_paintInGame.load(std::memory_order_relaxed) || !worldLive
         || g_offViewModel < 0 || g_offModelIndex < 0) {
+        g_vmLocal = nullptr; for (auto& b : g_vmBindings) { b = {}; b.profile = -1; }
         ViewModelScaleFieldPump(false);
         ViewModelMirrorPump(false);
-        g_vmLocal = nullptr; for (auto& b : g_vmBindings) { b = {}; b.profile = -1; }
+        // Feature may stay enabled across maps; still tear Calc/Build before Free.
+        ViewModelRemove();
         return;
     }
     void* local = EntGet(g_dbgLocalEnt.load(std::memory_order_relaxed));
     int handles[2]{};
     if (!local || !EntReadBlock(local, g_offViewModel, handles, sizeof(handles))) {
+        g_vmLocal = nullptr; for (auto& b : g_vmBindings) { b = {}; b.profile = -1; }
         ViewModelScaleFieldPump(false);
         ViewModelMirrorPump(false);
-        g_vmLocal = nullptr; for (auto& b : g_vmBindings) { b = {}; b.profile = -1; }
+        ViewModelRemove();
         return;
     }
     g_vmLocal = local;
@@ -68244,8 +68332,17 @@ static void HandleEvent(void* ev) {
 		Log("evt #%ld '%s'", (long)g_fireCalls, n);
 	}
 	if(g_optMainMenuUi && g_optMainUiBattleArchive && g_optChapStats
-		&& (!strcmp(n,"map_transition") || !strcmp(n,"finale_win")))
+		&& (!strcmp(n,"map_transition") || !strcmp(n,"finale_win")
+			|| !strcmp(n,"finale_vehicle_leaving")))
 		g_mainUiBattlePending = true;
+	// Rescue/finale escapes often leave the session before the next Paint; capture
+	// on the game thread once so the battle archive still gets the rescue chapter.
+	if(g_mainUiBattlePending && g_optChapStats
+		&& (!strcmp(n,"finale_win") || !strcmp(n,"finale_vehicle_leaving"))) {
+		ChapStatsRefreshPlayers();
+		MainUiHubCaptureLive(0);
+		if(g_mainUiBattleCaptured) g_mainUiBattlePending = false;
+	}
 	if(!strcmp(n,"mission_lost") || !strcmp(n,"game_disconnect"))
 		g_mainUiBattlePending = false;
 	if (n && (!strcmp(n, "mission_lost") || !strcmp(n, "game_disconnect")
@@ -68398,6 +68495,7 @@ static void HandleEvent(void* ev) {
 		VoiceHudClear();
 		KillFeedClear();
 		TabBoardKillsClear();
+		g_tbCkptSubtractBase = true; // first ckpt sample may still hold the previous attempt
 		MateAlertClear();
 		DirectorPhaseHudReset();
 		HazHudClearZones();
@@ -68411,6 +68509,7 @@ static void HandleEvent(void* ev) {
 	}
 	else if (!strcmp(n, "round_end")) {
 		TabBoardKillsClear();
+		g_tbCkptSubtractBase = false; // keep absolute ckpt values if the board is still painted
 		SilentSiClear();
 		TongueCutHudClear();
 		g_overlayBoundaryClearPending.store(true, std::memory_order_release);
@@ -68438,6 +68537,7 @@ static void HandleEvent(void* ev) {
 	}
 	else if (!strcmp(n, "map_transition")) {
 		TabBoardKillsClear();
+		g_tbCkptSubtractBase = false;
 		SilentSiClear();
 		TongueCutHudClear();
 		g_overlayBoundaryClearPending.store(true, std::memory_order_release);
@@ -68464,6 +68564,7 @@ static void HandleEvent(void* ev) {
 	}
 	else if (!strcmp(n, "mission_lost")) {
 		TabBoardKillsClear();
+		g_tbCkptSubtractBase = true; // next attempt's first sample is the leftover base
 		SilentSiClear();
 		TongueCutHudClear();
 		g_overlayBoundaryClearPending.store(true, std::memory_order_release);

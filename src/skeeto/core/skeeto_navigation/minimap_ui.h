@@ -43,11 +43,14 @@ inline unsigned ItemColor(items::Kind k){
 }
 struct LabelStyle {int width,height;unsigned color;};
 struct LabelMetrics {
-    LabelStyle entries[unsigned(items::Label::Count)]{};int font=0,iconSide=0;unsigned builds=0;
-    void Prepare(int nextFont,int mapSize){
-        if(font==nextFont&&iconSide==mapSize)return;font=nextFont;iconSide=mapSize;++builds;
+    LabelStyle entries[unsigned(items::Label::Count)]{};int font=0,iconSide=0;bool icons=true;unsigned builds=0;
+    void Prepare(int nextFont,int mapSize,bool useIcons){
+        if(font==nextFont&&iconSide==mapSize&&icons==useIcons)return;font=nextFont;iconSide=mapSize;icons=useIcons;++builds;
+        const int textPx=SupplyFont(nextFont);
         for(unsigned i=0;i<unsigned(items::Label::Count);++i){auto label=items::Label(i);bool weapon=label>=items::Label::Weapon;
-            int w=Limit(mapSize/16,12,20),h=w;if(i)supplyradar::MinimapIconSize(i,mapSize,w,h);
+            int w=Limit(mapSize/16,12,20),h=w;
+            if(useIcons){if(i)supplyradar::MinimapIconSize(i,mapSize,w,h);}
+            else{w=LabelWidth(label,textPx);h=textPx+2;}
             entries[i]={w,h,ItemColor(weapon?items::Kind::Weapon:items::Kind(i))};}
     }
     const LabelStyle& Get(items::Label label)const{return entries[unsigned(label)<unsigned(items::Label::Count)?unsigned(label):unsigned(items::Label::Weapon)];}
@@ -85,8 +88,8 @@ struct LabelLayout {
             AddLeader({ax-1,ay-1,3,3});
         }
     }
-    void Build(const Scene& scene,const items::Snapshot& snapshot,const guidance::Navigator*,int size,int font){
-        metrics.Prepare(font,size);
+    void Build(const Scene& scene,const items::Snapshot& snapshot,const guidance::Navigator*,int size,int font,bool useIcons=true){
+        metrics.Prepare(font,size,useIcons);
         previousSize=size;previousFont=font;previousMesh=scene.meshSerial;
         trackedCount=count=hidden=crowded=outside=protectedCount=leaderCount=0;
         float factor=float(size)/Pixels;const auto& v=scene.view;

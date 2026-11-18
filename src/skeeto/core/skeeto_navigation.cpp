@@ -299,22 +299,28 @@ static void Draw(bool showMap,bool showWorld){performance::Measure timing(paintC
     if(!supplyFont)supplyFont=VCall<unsigned(__thiscall*)(void*)>(surface,63)(surface);
     int supplyPixels=minimap::SupplyFont(targetFont);
     if(supplyFont&&supplyFontSize!=supplyPixels){if(VCall<bool(__thiscall*)(void*,unsigned,const char*,int,int,int,int,int,int,int)>(surface,64)(surface,supplyFont,"Microsoft YaHei",supplyPixels,600,0,0,0x90,0,0xffff))supplyFontSize=supplyPixels;}
-    static bool labelEnglish=false;
+    static bool labelEnglish=false;static int labelItemStyle=-1;
     const bool english=g_uiEnglish.load(std::memory_order_relaxed);
-    if(labelRaster!=rasterBuilds||labelOverlay!=overlaySerial||labelSize!=size||labelFont!=targetFont||labelEnglish!=english){
-        labelLayout.Build(lastScene,itemSnapshot,settings.navigation?&navigator:nullptr,size,targetFont);
-        labelRaster=rasterBuilds;labelOverlay=overlaySerial;labelSize=size;labelFont=targetFont;labelEnglish=english;
+    const bool useIcons=settings.itemStyle==0;
+    if(labelRaster!=rasterBuilds||labelOverlay!=overlaySerial||labelSize!=size||labelFont!=targetFont||labelEnglish!=english||labelItemStyle!=settings.itemStyle){
+        labelLayout.Build(lastScene,itemSnapshot,settings.navigation?&navigator:nullptr,size,targetFont,useIcons);
+        labelRaster=rasterBuilds;labelOverlay=overlaySerial;labelSize=size;labelFont=targetFont;labelEnglish=english;labelItemStyle=settings.itemStyle;
     }
     if(settings.items)for(int i=0;i<labelLayout.leaderCount;++i){const auto& b=labelLayout.leaders[i];
-        Rect(x+b.x,y+b.y,b.w,b.h,145,167,179,b.w==3&&b.h==3?205:135);
+        // Soften leader / pin plates so markers read without a heavy plate.
+        Rect(x+b.x,y+b.y,b.w,b.h,145,167,179,b.w==3&&b.h==3?110:70);
     }
     if(settings.items){
         unsigned iconUploads=1;
         for(int i=0;i<labelLayout.count;++i){const auto& l=labelLayout.labels[i];const auto& b=l.box;
             const int ix=x+b.x,iy=y+b.y,iw=b.w,ih=b.h;
-            if(iw>0&&ih>0&&supplyradar::DrawMinimapIcon(unsigned(l.label),ix,iy,iw,ih,iconUploads))continue;
-            unsigned color=labelLayout.metrics.Get(l.label).color;
-            TextFit(ix,iy,items::Text(l.label),iw,iw>12?iw-4:12,color);
+            if(iw>0&&ih>0){
+                if(useIcons&&supplyradar::DrawMinimapIcon(unsigned(l.label),ix,iy,iw,ih,iconUploads))continue;
+                // Light plate behind text so glyphs stay readable without opaque cards.
+                Rect(ix-1,iy-1,iw+2,ih+2,12,18,22,72);
+                unsigned color=labelLayout.metrics.Get(l.label).color;
+                TextFit(ix,iy,items::Text(l.label),iw,iw>12?iw-4:12,color);
+            }
         }
     }
     if(const WCHAR* notice=MapNotice()){
@@ -438,7 +444,7 @@ unsigned ProgressStats(char* out,unsigned capacity){
 }
 
 bool RadarEnabled(){return supplyradar::options::values[0]!=0;}
-static bool MinimapIconsWanted(){return settings.enabled&&settings.items;}
+static bool MinimapIconsWanted(){return settings.enabled&&settings.items&&settings.itemStyle==0;}
 static void ReleaseArtworkIfUnused(){if(!RadarEnabled()&&!MinimapIconsWanted())supplyradar::ReleaseArtwork();}
 int RadarGet(int index){return index>=0&&index<kRadarSettingCount?supplyradar::options::values[index]:0;}
 const char* RadarKey(int index){return supplyradar::options::Key(index);}
@@ -489,10 +495,11 @@ void Set(int index,int value){if(index<0||index>=kSettingCount)return;value=Limi
     if(navDeferred&&value&&inSession&&NavWanted()){Reload();return;}
     if(index==0&&!value){if(Active())ResetMinimapPresentation();else ResetSession();ReleaseArtworkIfUnused();return;}
     if(index==10&&!value)ReleaseArtworkIfUnused();
+    if(index==controls::ItemStyleIndex){labelRaster=~0u;ReleaseArtworkIfUnused();}
     if(index==8&&!value){if(!progressEnabled)navigator.Clear();worldOverlay.Clear();}
     if((index==8||index==controls::WorldIndex)&&!Active()){ResetSession();return;}
     if(index==9){if(navigator.prepared)navigator.Select(value);}
-    else if(index!=controls::WorldHudIndex&&(index<controls::WorldArrowColorIndex||index>controls::WorldHudYIndex)){sceneValid=terrainValid=false;itemCursor=0;lastItemPoll=lastRoutePoll=lastFrame=0;}}
+    else if(index!=controls::WorldHudIndex&&index!=controls::ItemStyleIndex&&(index<controls::WorldArrowColorIndex||index>controls::WorldHudYIndex)){sceneValid=terrainValid=false;itemCursor=0;lastItemPoll=lastRoutePoll=lastFrame=0;}}
 void Reload(){if(!Active())return;char name[240]{};CopyText(name,sizeof name,mapName);StartMap(name);}
 void InvalidateFonts(){fontSize=supplyFontSize=worldFontSize=0;supplyradar::InvalidateFonts();}
 void Shutdown(){ResetSession();supplyradar::ReleaseArtwork();supplyradar::UnloadFonts();supplyradar::options::values[0]=0;settings.enabled=0;ready=false;}

@@ -15,6 +15,24 @@ Then extract all contents of the new package into the game's root directory. If 
 
 项目开源链接：https://github.com/regoists/Skeeto
 
+## 2.2.20（2026-11-18）
+	Skeeto核心：
+新增：
+- 小地图物资标记可选「图标 / 文字」（默认图标）；引线与文字底透明度降低。
+- 近期战报在开启章节统计与记录后，会记录终局救援成功（普通章节过关仍照旧）。
+修改：
+- TAB 闲置生还者的击杀记到对应真人；checkpoint 残留击杀按局基线处理，过图/结算后不再被清成 0。
+修复：
+- 持枪视角缩放在切图释放窗口对失效实体写字段导致的 Family B 闪退（自 2.2.14 引入）。
+	Skeeto Core:
+Added:
+- Minimap supply markers can switch between icons and text (icons by default); leader lines and text plates use lower opacity.
+- With chapter stats and battle recording on, the recent battle archive now also records successful finale rescues (regular chapter clears are unchanged).
+Changed:
+- TAB credits idle-survivor kills to the idle human; checkpoint leftover kills use a per-attempt baseline and no longer zero out after map transition / round end.
+Fixed:
+- Family B crash from writing viewmodel model-scale onto freed entities during map change (introduced in 2.2.14).
+
 ## 2.2.19（2026-11-15）
 	Skeeto核心：
 修改：
