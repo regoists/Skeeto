@@ -14,6 +14,13 @@ enum SkeetoBackgroundFit : int {
 	SKEETO_BG_STRETCH = 2,
 };
 
+// MP4 end-of-stream only. Images and BIK keep their existing one-shot / native loop.
+enum SkeetoBackgroundMp4Advance : int {
+	SKEETO_BG_MP4_LOOP = 0,
+	SKEETO_BG_MP4_SEQUENTIAL = 1,
+	SKEETO_BG_MP4_RANDOM = 2,
+};
+
 struct SkeetoBackgroundFrame {
 	// Media Foundation/WIC native 32-bit order: B, G, R, A in memory.
 	const unsigned char* bgra;
@@ -55,6 +62,10 @@ const char* SkeetoBackgroundCurrentName();
 void SkeetoBackgroundSelect(const char* id);
 void SkeetoBackgroundSetRandomStart(bool enabled);
 bool SkeetoBackgroundRandomStart();
+void SkeetoBackgroundSetMp4Advance(int mode);
+int SkeetoBackgroundMp4Advance();
+// Paint only: consume an MP4 end request and queue the next MP4 (order / random).
+bool SkeetoBackgroundPumpMp4Advance();
 
 void SkeetoBackgroundSetFit(int fit);
 int SkeetoBackgroundFitMode();

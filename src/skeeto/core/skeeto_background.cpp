@@ -87,6 +87,9 @@ static char g_wantedId[64]{};
 static bool g_randomStart = false;
 static bool g_startupRandomApplied = false;
 static bool g_fullScanComplete = false;
+static std::atomic_int g_mp4Advance{ SKEETO_BG_MP4_SEQUENTIAL };
+static std::atomic_bool g_mp4AdvancePending{ false };
+static std::atomic_uint g_mp4AdvanceGeneration{ 0 };
 static char g_gameDir[MAX_PATH]{};
 static SkeetoBackgroundLogFn g_log = nullptr;
 static bool g_initialized = false;
@@ -1099,6 +1102,18 @@ static bool DecodeVideo(const LoadJob& job, unsigned int* serial) {
 			&stream, &flags, &timestamp, &sample);
 		if (FAILED(hr)) { if (sample) sample->Release(); break; }
 		if (flags & MF_SOURCE_READERF_ENDOFSTREAM) {
+			if (sample) sample->Release();
+			// Playlist advance is decided on Paint; the worker only signals EOS.
+			// Bind the request to this job's generation so a concurrent Next/Select
+			// cannot let a stale decoder skip an already-queued replacement.
+			if (g_mp4Advance.load(std::memory_order_relaxed) != SKEETO_BG_MP4_LOOP) {
+				const unsigned int gen = g_generation.load(std::memory_order_acquire);
+				if (gen == job.generation) {
+					g_mp4AdvanceGeneration.store(gen, std::memory_order_relaxed);
+					g_mp4AdvancePending.store(true, std::memory_order_release);
+				}
+				break;
+			}
 			discardBefore = 0;
 			if (lastSourceMediaTime >= 0 && loopFirstMediaTime >= 0)
 				timelineOffset += lastSourceMediaTime - loopFirstMediaTime + sourceFrameStep;
@@ -1110,7 +1125,6 @@ static bool DecodeVideo(const LoadJob& job, unsigned int* serial) {
 			PropVariantClear(&pos);
 			loopFirstMediaTime = -1;
 			lastSourceMediaTime = -1;
-			if (sample) sample->Release();
 			continue;
 		}
 		if (!sample) continue;
@@ -1430,6 +1444,9 @@ void SkeetoBackgroundShutdown() {
 	g_fullScanComplete = false;
 	g_startupRandomApplied = false;
 	g_randomStart = false;
+	g_mp4Advance.store(SKEETO_BG_MP4_SEQUENTIAL, std::memory_order_relaxed);
+	g_mp4AdvancePending.store(false, std::memory_order_relaxed);
+	g_mp4AdvanceGeneration.store(0, std::memory_order_relaxed);
 	g_assetCount = 0;
 	g_current = -1;
 	g_wantedId[0] = 0;
@@ -1562,16 +1579,84 @@ bool SkeetoBackgroundPreloadLoose() {
 bool SkeetoBackgroundReload() {
 	g_loadQueued = false;
 	g_loadFailed = false;
+	g_mp4AdvancePending.store(false, std::memory_order_relaxed);
 	return SkeetoBackgroundScan();
 }
 
 bool SkeetoBackgroundNext() {
 	if (!g_scanned) SkeetoBackgroundScan();
 	if (g_assetCount <= 0) return false;
+	g_mp4AdvancePending.store(false, std::memory_order_relaxed);
 	g_current = (g_current < 0) ? 0 : ((g_current + 1) % g_assetCount);
 	strncpy(g_wantedId, g_assets[g_current].id, sizeof(g_wantedId) - 1);
 	if (g_enabled && g_menuActive.load(std::memory_order_acquire)) QueueCurrent();
 	return true;
+}
+
+static bool SelectNextMp4(bool randomPick) {
+	int mp4Idx[kAssetMax];
+	int mp4N = 0;
+	for (int i = 0; i < g_assetCount; ++i) {
+		if (g_assets[i].type != SKEETO_BG_VIDEO_MP4) continue;
+		mp4Idx[mp4N++] = i;
+	}
+	if (mp4N <= 0) return false;
+	int pick = mp4Idx[0];
+	if (mp4N == 1) {
+		pick = mp4Idx[0];
+	} else if (randomPick) {
+		unsigned int seed = GetTickCount() ^ (unsigned int)(g_current + 1) * 2654435761u;
+		int avoid = g_current;
+		for (int attempt = 0; attempt < 8; ++attempt) {
+			seed = seed * 1664525u + 1013904223u;
+			pick = mp4Idx[seed % (unsigned int)mp4N];
+			if (pick != avoid) break;
+		}
+	} else {
+		int at = -1;
+		for (int i = 0; i < mp4N; ++i) {
+			if (mp4Idx[i] == g_current) { at = i; break; }
+		}
+		pick = mp4Idx[(at + 1 + mp4N) % mp4N];
+	}
+	g_current = pick;
+	strncpy(g_wantedId, g_assets[g_current].id, sizeof(g_wantedId) - 1);
+	g_wantedId[sizeof(g_wantedId) - 1] = 0;
+	return true;
+}
+
+void SkeetoBackgroundSetMp4Advance(int mode) {
+	if (mode < SKEETO_BG_MP4_LOOP || mode > SKEETO_BG_MP4_RANDOM) mode = SKEETO_BG_MP4_SEQUENTIAL;
+	g_mp4Advance.store(mode, std::memory_order_relaxed);
+	if (mode == SKEETO_BG_MP4_LOOP)
+		g_mp4AdvancePending.store(false, std::memory_order_relaxed);
+}
+
+int SkeetoBackgroundMp4Advance() {
+	return g_mp4Advance.load(std::memory_order_relaxed);
+}
+
+bool SkeetoBackgroundPumpMp4Advance() {
+	if (!g_mp4AdvancePending.load(std::memory_order_acquire)) return false;
+	if (!g_enabled || !g_scanned || !g_menuActive.load(std::memory_order_acquire)) return false;
+	if (g_mp4AdvanceGeneration.load(std::memory_order_relaxed)
+		!= g_generation.load(std::memory_order_acquire)) {
+		g_mp4AdvancePending.store(false, std::memory_order_relaxed);
+		return false;
+	}
+	const int mode = g_mp4Advance.load(std::memory_order_relaxed);
+	if (mode == SKEETO_BG_MP4_LOOP) {
+		g_mp4AdvancePending.store(false, std::memory_order_relaxed);
+		return false;
+	}
+	if (!SelectNextMp4(mode == SKEETO_BG_MP4_RANDOM)) {
+		g_mp4AdvancePending.store(false, std::memory_order_relaxed);
+		return false;
+	}
+	g_mp4AdvancePending.store(false, std::memory_order_relaxed);
+	BgLog("Background MP4 advance (%s): %s",
+		mode == SKEETO_BG_MP4_RANDOM ? "random" : "sequential", g_assets[g_current].id);
+	return QueueCurrent();
 }
 
 int SkeetoBackgroundCount() { return g_assetCount; }
@@ -1583,6 +1668,7 @@ const char* SkeetoBackgroundCurrentName() { return g_current >= 0 ? g_assets[g_c
 
 void SkeetoBackgroundSelect(const char* id) {
 	if (!id) id = "";
+	g_mp4AdvancePending.store(false, std::memory_order_relaxed);
 	strncpy(g_wantedId, id, sizeof(g_wantedId) - 1);
 	g_wantedId[sizeof(g_wantedId) - 1] = 0;
 	if (g_scanned) {

@@ -15,6 +15,18 @@ Then extract all contents of the new package into the game's root directory. If 
 
 项目开源链接：https://github.com/regoists/Skeeto
 
+## 2.2.21（2026-11-21）
+	Skeeto核心：
+新增：
+- 主菜单背景引擎：MP4 播完后可选循环本片 / 顺序下一支 / 随机下一支（默认顺序）；图片与 BIK 不变。编号菜单与自定义主菜单背景页均可切换。
+修复：
+- 推击疲劳 HUD 按模式读取 coop / versus 上限（写实、对抗、清道夫用 vs；战役等用 coop），服务器改 ConVar 会跟着变.
+	Skeeto Core:
+Added:
+- Main-menu background engine: after an MP4 ends, choose loop current / next in order / next at random (order by default); images and BIK unchanged. Available in the numbered menu and the custom main-menu background page.
+Fixed:
+- Shove fatigue HUD now reads the coop vs versus max-penalty ConVars by mode (realism / versus / scavenge use vs; campaign and similar use coop), and follows server ConVar changes.
+
 ## 2.2.20（2026-11-18）
 	Skeeto核心：
 修改：

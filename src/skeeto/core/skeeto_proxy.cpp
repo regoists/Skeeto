@@ -3266,6 +3266,7 @@ static int g_mainUiBackdrop = 0; // 0 = text-only; 100 = original panel opacity.
 static std::atomic_bool g_mainUiMenuContext{false}; // Published by Paint; worker only reads.
 static std::atomic_bool g_mainUiInputReady{false};
 static bool g_optBackgroundRandomStart = false;
+static int g_optBackgroundMp4Advance = SKEETO_BG_MP4_SEQUENTIAL; // 0 loop / 1 sequential / 2 random
 static char g_backgroundId[64]{};
 static int g_backgroundFit = -1; // -1 = cover; 0..2 = user override
 static int g_backgroundVolume = 100;
@@ -4303,10 +4304,13 @@ static void BackgroundUseAssets() {
 	if (!BackgroundEnsureInitialized()) return;
 	if (!SkeetoBackgroundEnabled()) {
 		SkeetoBackgroundSetRandomStart(g_optBackgroundRandomStart);
+		SkeetoBackgroundSetMp4Advance(g_optBackgroundMp4Advance);
 		SkeetoBackgroundSelect(g_backgroundId);
 		SkeetoBackgroundSetFit(g_backgroundFit);
 		SkeetoBackgroundSetVolume(g_backgroundVolume);
 		SkeetoBackgroundSetEnabled(true);
+	} else {
+		SkeetoBackgroundSetMp4Advance(g_optBackgroundMp4Advance);
 	}
 }
 
@@ -5234,11 +5238,13 @@ void SaveSettings() {
 	fprintf(f,
 		"background_engine=%d\n"
 		"background_random_start=%d\n"
+		"background_mp4_advance=%d\n"
 		"background_id=%s\n"
 		"background_fit=%d\n"
 		"background_volume=%d\n",
 		g_optBackgroundEngine ? 1 : 0,
 		g_optBackgroundRandomStart ? 1 : 0,
+		g_optBackgroundMp4Advance,
 		g_backgroundId[0] ? g_backgroundId : "@auto",
 		g_backgroundFit,
 		g_backgroundVolume);
@@ -7449,6 +7455,7 @@ static void LoadSettings() {
 	g_mainUiBackdrop = 0;
 	MainUiLayoutReset();
 	g_optBackgroundRandomStart = false;
+	g_optBackgroundMp4Advance = SKEETO_BG_MP4_SEQUENTIAL;
 	g_backgroundId[0] = 0;
 	g_backgroundFit = -1;
 	g_backgroundVolume = 100;
@@ -7938,6 +7945,10 @@ static void LoadSettings() {
 		else if (sscanf(line,"escmenu_ui=%d",&v)==1)g_optEscMenuUi=v!=0;
 		else if (sscanf(line,"escmenu_cvar_remember=%d",&v)==1)g_optSktCvarRemember=v!=0;
 		else if (sscanf(line, "background_random_start=%d", &v) == 1) g_optBackgroundRandomStart = v != 0;
+		else if (sscanf(line, "background_mp4_advance=%d", &v) == 1) {
+			if (v < SKEETO_BG_MP4_LOOP || v > SKEETO_BG_MP4_RANDOM) v = SKEETO_BG_MP4_SEQUENTIAL;
+			g_optBackgroundMp4Advance = v;
+		}
 		else if (sscanf(line, "cfg_override=%d", &v) == 1) g_optCfgOverride = v != 0;
 		else if (sscanf(line, "cvar_override=%d", &v) == 1) g_optCfgOverride = v != 0; // legacy
 		else if (sscanf(line, "cfg_override_restore=%d", &v) == 1) g_optCfgOverrideRestore = v != 0;
@@ -19821,6 +19832,15 @@ static void BackgroundPaintBeforeOriginal(int mode) {
 		return;
 	}
 	g_backgroundWasMenuActive = true;
+	if (SkeetoBackgroundPumpMp4Advance()) {
+		const char* id = SkeetoBackgroundCurrentId();
+		if (id && id[0]) {
+			strncpy(g_backgroundId, id, sizeof(g_backgroundId) - 1);
+			g_backgroundId[sizeof(g_backgroundId) - 1] = 0;
+			g_settingsDirty = true;
+			g_settingsSaveAt = GetTickCount() + 800;
+		}
+	}
 	if (!g_backgroundScanAttempted) {
 		g_backgroundScanAttempted = true;
 		SkeetoBackgroundScan();
@@ -25003,10 +25023,38 @@ void SurfDrawArc(int cx, int cy, int r, float a0, float a1, int segs, int rr, in
 	}
 }
 
+// Shove fatigue ConVars split into coop vs versus families. Known modes win over
+// any sticky helper flag; realism uses the vs pair (community-verified).
+static bool ShoveUseVsPenaltyCvars() {
+	const char* mode = ReadMpGamemode();
+	if (mode && mode[0]) {
+		if (!_stricmp(mode, "coop") || !_stricmp(mode, "survival")
+			|| !_stricmp(mode, "holdout"))
+			return false;
+		if (!_stricmp(mode, "versus") || !_stricmp(mode, "scavenge")
+			|| !_stricmp(mode, "realism"))
+			return true;
+	}
+	// Mutations / unknown mode: engine flag when readable.
+	return ConVarReadIntBounded(CvarFind("playercontrolledzombies"), 0, 1) == 1;
+}
+
 static int ShoveMaxPenaltyCvar() {
-	int n = CvarGetIntRange("z_gun_swing_coop_max_penalty", 2, 16, -1);
-	if (n < 0) n = CvarGetIntRange("z_gun_swing_vs_max_penalty", 2, 16, 8);
-	return n;
+	static int s_cached = 8;
+	static DWORD s_at = 0;
+	static bool s_vs = false;
+	const DWORD now = GetTickCount();
+	const bool vs = ShoveUseVsPenaltyCvars();
+	if (s_at && (now - s_at) < 500u && s_vs == vs) return s_cached;
+	const char* primary = vs ? "z_gun_swing_vs_max_penalty" : "z_gun_swing_coop_max_penalty";
+	const int def = vs ? 6 : 8;
+	// Diamond row stays bounded; servers may raise the ConVar far above paint budget.
+	// Do not fall across coop/vs families — a failed coop read must not become vs 6.
+	const int n = CvarGetIntRange(primary, 2, 16, def);
+	s_cached = n;
+	s_vs = vs;
+	s_at = now;
+	return s_cached;
 }
 
 static float ShoveIntervalCvar() {
@@ -27606,15 +27654,16 @@ static_assert(_countof(kTextureCrosshairMenuItems) == 4 && _countof(kTextureCros
 	"texture crosshair settings must stay within one numbered page");
 
 enum class BackgroundEngineMenuAction : unsigned char {
-	ToggleEnabled, CycleBackground, CycleFit, AdjustVolume, ToggleRandomStart, ReloadList,
+	ToggleEnabled, CycleBackground, CycleFit, AdjustVolume, ToggleRandomStart, CycleMp4Advance, ReloadList,
 };
 struct BackgroundEngineMenuItem { BackgroundEngineMenuAction action; };
 static constexpr BackgroundEngineMenuItem kBackgroundEngineMenuItems[] = {
 	{BackgroundEngineMenuAction::ToggleEnabled}, {BackgroundEngineMenuAction::CycleBackground},
 	{BackgroundEngineMenuAction::CycleFit}, {BackgroundEngineMenuAction::AdjustVolume},
-	{BackgroundEngineMenuAction::ToggleRandomStart}, {BackgroundEngineMenuAction::ReloadList},
+	{BackgroundEngineMenuAction::ToggleRandomStart}, {BackgroundEngineMenuAction::CycleMp4Advance},
+	{BackgroundEngineMenuAction::ReloadList},
 };
-static_assert(_countof(kBackgroundEngineMenuItems) == 6 && _countof(kBackgroundEngineMenuItems) <= kMenuItemsPerPage,
+static_assert(_countof(kBackgroundEngineMenuItems) == 7 && _countof(kBackgroundEngineMenuItems) <= kMenuItemsPerPage,
 	"background engine settings must stay within one numbered page");
 
 enum class CfgOverrideMenuAction : unsigned char {
@@ -29929,7 +29978,7 @@ static void MenuPaintEngine() {
 			const int lh = MenuDesignLineH() + 5;
 			y = SurfWrapDesign(y, RGB(255, 205, 55),
 				UiText(UiId::BackgroundUsageHint,
-					L"用法：将 PNG、JPG/JPEG、H.264 编码 MP4 或 BIK 放入 left4dead2/skeeto/backgrounds/；启用引擎后播放。新增文件按 [6] 重新扫描。MP4 不建议用 4K：解码压力大、转换效率低，可能导致播放速度异常。"),
+					L"用法：将 PNG、JPG/JPEG、H.264 编码 MP4 或 BIK 放入 left4dead2/skeeto/backgrounds/；启用引擎后播放。新增文件按 [7] 重新扫描。MP4 播完可选循环本片、顺序下一支或随机下一支；图片与 BIK 不变。MP4 不建议用 4K：解码压力大、转换效率低，可能导致播放速度异常。"),
 				MenuHintGap());
 			y += 4;
 			for (int i = 0; i < SinglePageMenuItemCount(kBackgroundEngineMenuItems); ++i) {
@@ -29956,8 +30005,17 @@ static void MenuPaintEngine() {
 					swprintf_s(buf, 192, UiText(UiId::Text_f3ea1048, L"[5] 每次启动随机选择：%s"), onoff(g_optBackgroundRandomStart));
 					rowColor = col(g_optBackgroundRandomStart);
 					break;
+				case BackgroundEngineMenuAction::CycleMp4Advance: {
+					const wchar_t* adv = UiText(UiId::BackgroundMp4AdvanceLoop, L"循环本片");
+					if (g_optBackgroundMp4Advance == SKEETO_BG_MP4_SEQUENTIAL)
+						adv = UiText(UiId::BackgroundMp4AdvanceSeq, L"顺序下一支");
+					else if (g_optBackgroundMp4Advance == SKEETO_BG_MP4_RANDOM)
+						adv = UiText(UiId::BackgroundMp4AdvanceRandom, L"随机下一支");
+					swprintf_s(buf, 192, UiText(UiId::BackgroundMp4Advance, L"[6] MP4 播完后：%s"), adv);
+					break;
+				}
 				case BackgroundEngineMenuAction::ReloadList:
-					wcsncpy_s(buf, _countof(buf), UiText(UiId::Text_8e769f9d, L"[6] 重新扫描背景资源"), _TRUNCATE);
+					wcsncpy_s(buf, _countof(buf), UiText(UiId::Text_8e769f9d, L"[7] 重新扫描背景资源"), _TRUNCATE);
 					break;
 				default:
 					buf[0] = L'\0';
@@ -37904,6 +37962,11 @@ static void MainUiDispatch(int action) {
 		g_optBackgroundRandomStart=!g_optBackgroundRandomStart;
 		if (g_backgroundCoreInitialized.load(std::memory_order_acquire)) SkeetoBackgroundSetRandomStart(g_optBackgroundRandomStart);
 		MainUiSharedSettingsChanged(); break;
+	case 18:
+		g_optBackgroundMp4Advance=CycleWrap(g_optBackgroundMp4Advance,SKEETO_BG_MP4_LOOP,SKEETO_BG_MP4_RANDOM);
+		if (g_backgroundCoreInitialized.load(std::memory_order_acquire))
+			SkeetoBackgroundSetMp4Advance(g_optBackgroundMp4Advance);
+		MainUiSharedSettingsChanged(); break;
 	case 19: g_optClientSoundVolume=!g_optClientSoundVolume; AudioMixerPushConVars(); MainUiSharedSettingsChanged(); break;
 	case 20: g_mainUiPressed=-1; g_mainUiVolumePage=(g_mainUiVolumePage+2)%3; break;
 	case 21: g_mainUiPressed=-1; g_mainUiVolumePage=(g_mainUiVolumePage+1)%3; break;
@@ -38190,13 +38253,22 @@ static void MainUiDrawHome(bool registerButtons) {
 			MainUiDrawSlot(playback,rx+U(28),oy+U(334),U(136),U(44),registerButtons,hover);
 			playback.id=playback.action=929;
 			MainUiDrawSlot(playback,rx+U(184),oy+U(330),U(516),U(48),registerButtons,hover);
-			text(2,rx+U(28),oy+U(398),muted,UiText(UiId::MainUiFit,L"显示方式"),U(300));
-			button(rx+U(458),oy+U(386),U(242),U(36),16,BackgroundFitNameW(g_backgroundFit));
-			text(2,rx+U(28),oy+U(444),muted,UiText(UiId::MainUiRandomBackground,L"每次启动随机选择"),U(400));
-			button(rx+U(458),oy+U(432),U(242),U(36),17,UiText(g_optBackgroundRandomStart ? UiId::MainUiOn : UiId::MainUiOff,g_optBackgroundRandomStart ? L"已开启" : L"已关闭"));
-			slider(oy+U(484),500,UiText(UiId::MainUiBackgroundVolume,L"背景音量"));
-			button(rx+U(28),oy+U(521),U(326),U(32),27,UiText(UiId::MainUiBackgroundView,L"欣赏背景（Esc 返回）"));
-            text(2,rx+U(28),oy+U(563),muted,UiText(UiId::MainUiBackgroundVolumeHint,L"MP4 独立音量；静态图片无声音。"),rw-U(56));
+			text(2,rx+U(28),oy+U(386),muted,UiText(UiId::MainUiFit,L"显示方式"),U(300));
+			button(rx+U(458),oy+U(374),U(242),U(36),16,BackgroundFitNameW(g_backgroundFit));
+			text(2,rx+U(28),oy+U(428),muted,UiText(UiId::MainUiRandomBackground,L"每次启动随机选择"),U(400));
+			button(rx+U(458),oy+U(416),U(242),U(36),17,UiText(g_optBackgroundRandomStart ? UiId::MainUiOn : UiId::MainUiOff,g_optBackgroundRandomStart ? L"已开启" : L"已关闭"));
+			{
+				const wchar_t* adv = UiText(UiId::BackgroundMp4AdvanceLoop, L"循环本片");
+				if (g_optBackgroundMp4Advance == SKEETO_BG_MP4_SEQUENTIAL)
+					adv = UiText(UiId::BackgroundMp4AdvanceSeq, L"顺序下一支");
+				else if (g_optBackgroundMp4Advance == SKEETO_BG_MP4_RANDOM)
+					adv = UiText(UiId::BackgroundMp4AdvanceRandom, L"随机下一支");
+				text(2,rx+U(28),oy+U(470),muted,UiText(UiId::MainUiMp4Advance,L"MP4 播完后"),U(300));
+				button(rx+U(458),oy+U(458),U(242),U(36),18,adv);
+			}
+			slider(oy+U(500),500,UiText(UiId::MainUiBackgroundVolume,L"背景音量"));
+			button(rx+U(28),oy+U(528),U(326),U(32),27,UiText(UiId::MainUiBackgroundView,L"欣赏背景（Esc 返回）"));
+			text(2,rx+U(370),oy+U(534),muted,UiText(UiId::MainUiBackgroundVolumeHint,L"MP4 独立音量；静态图片无声音。"),rw-U(398));
 		} else if (g_mainUiPanel==2) {
 			text(2,rx+U(28),oy+U(204),muted,UiText(UiId::MainUiVolumeMaster,L"分类音量总开关"),U(300));
 			button(rx+U(458),oy+U(193),U(242),U(36),19,UiText(g_optClientSoundVolume ? UiId::MainUiOn : UiId::MainUiOff,g_optClientSoundVolume ? L"已开启" : L"已关闭"));
@@ -40711,6 +40783,12 @@ static void MenuProcessKeyImpl(int digit) {
 				g_backgroundId[sizeof(g_backgroundId) - 1] = 0;
 			}
 			break;
+		case BackgroundEngineMenuAction::CycleMp4Advance:
+			g_optBackgroundMp4Advance = CycleWrap(g_optBackgroundMp4Advance,
+				SKEETO_BG_MP4_LOOP, SKEETO_BG_MP4_RANDOM);
+			if (g_backgroundCoreInitialized.load(std::memory_order_acquire))
+				SkeetoBackgroundSetMp4Advance(g_optBackgroundMp4Advance);
+			break;
 		case BackgroundEngineMenuAction::ReloadList:
 			if (!g_optBackgroundEngine
 				|| !g_backgroundCoreInitialized.load(std::memory_order_acquire)
@@ -40729,9 +40807,10 @@ static void MenuProcessKeyImpl(int digit) {
 			return;
 		}
 		SaveSettings();
-		Log("background: enabled=%d random=%d id=%s fit=%d volume=%d count=%d",
+		Log("background: enabled=%d random=%d mp4_advance=%d id=%s fit=%d volume=%d count=%d",
 			g_optBackgroundEngine ? 1 : 0,
 			g_optBackgroundRandomStart ? 1 : 0,
+			g_optBackgroundMp4Advance,
 			g_backgroundId[0] ? g_backgroundId : "-",
 			g_backgroundFit, g_backgroundVolume,
 			SkeetoBackgroundCount());
