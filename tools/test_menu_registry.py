@@ -91,10 +91,12 @@ assert initializer_count(setup_items) == 5
 assert PROXY.count("kMainUiSetupItems[") >= 3, "main-menu setup paint and input must share the ordered table"
 assert "MainUiSetupItemCount() <= kMenuRootItemsPerPage" in PROXY
 
-assert initializer_count(combat_items) == 12
+assert initializer_count(combat_items) == 13
 assert "CombatVisualMenuAction::OpenInteractScan" in combat_items
 assert "CombatVisualMenuAction::OpenInteractScan, kMenuPageInteractScan" in combat_items
 assert "CombatVisualMenuAction::OpenGunFeel, kMenuPageGunFeel" in combat_items
+assert "CombatVisualMenuAction::OpenFreeCam, kMenuPageFreeCam" in combat_items
+assert "OpenFreeCam" not in script_items
 assert "CombatVisualMenuItemAt(g_menuSub, digit)" in PROXY
 assert PROXY.count("CombatVisualMenuItemAt(") >= 2, "combat paint and input must share subpage lookup"
 assert PROXY.count("kCombatVisualMenuItems[") >= 3, "combat menu paint and input must share the ordered table"
@@ -467,7 +469,7 @@ assert "for (const auto& item : kMainUiActions) if (item.action == action) retur
 assert "static_assert(MainUiActionCatalogUnique()" in EDITOR
 
 print(
-    "menu registry wiring passed: root=24, main-menu setup=5, combat=12, "
+    "menu registry wiring passed: root=24, main-menu setup=5, combat=13, "
     f"navigation=4, world HUD={initializer_count(world_items)}, sound volume=17, serialized actions={len(action_ids)}"
 )
 

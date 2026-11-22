@@ -323,6 +323,8 @@ void TeamHudFillMeleeStem(int wepIdx, char* out, int outN, bool forDeathEvent = 
 void TeamHudReadGunAmmo(void* owner, int wepIdx, int kind, int* clip, int* ammo);
 void TeamHudResetRuntimeState();
 void TeamHudOnBotSwap(const char* eventName, int playerUserId, int botUserId);
+// SurvivorBot::m_humanSpectatorUserID → idle human userid, or 0.
+int SkeetoIdleHumanUserIdForBot(int botEnt);
 void TeamHudGather();
 const wchar_t* TeamHudCharName(int ch);
 void TeamWorldHudPaint();

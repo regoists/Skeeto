@@ -81,6 +81,7 @@ This table is the single maintained place for file responsibilities and search e
 | Throwable trajectory and landing preview | `core/skeeto_proxy.cpp` | `ClientUxPaintThrowLand` |
 | Damage-event classification strategy | `core/skeeto_damage_events.h` | `skeeto_damage::*` |
 | Third-person aim correction (Skeetoscript) | `core/skeeto_proxy.cpp`, `core/skeeto_tps_aim_aac.h` | `TpsAim*` |
+| Free camera (Combat / Visual) | `core/skeeto_proxy.cpp`, `core/skeeto_freecam.h` | `FreeCam*` |
 | Hold-to-fire for semi-autos (Skeetoscript) | `core/skeeto_proxy.cpp` | `ClientUxHoldSemiPump` |
 | Anti-crash patch integration | `core/skeeto_proxy.cpp` | `CrashGuard*` |
 | Cache offload and reclaim | `core/skeeto_cache_offload.cpp/.h`, `core/skeeto_cache_protocol.h`, `cache_host/skeeto_cache_host.cpp` | `skeeto_cache::StartWorker / Pump / RequestReclaim / StopWorker` |

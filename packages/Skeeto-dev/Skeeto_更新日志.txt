@@ -15,6 +15,20 @@ Then extract all contents of the new package into the game's root directory. If 
 
 项目开源链接：https://github.com/regoists/Skeeto
 
+## 2.2.22（2026-11-22）
+	Skeeto核心：
+新增：
+- 战斗增强与视听优化新增「自由镜头」（Free Camera）：镜头与身体脱钩飞行（WASD / Space / Ctrl·Shift），默认关；可在键盘/鼠标绑定 skeeto_freecam，或在设置页立即切换。
+修复：
+- 队友血条/世界名在闲置 BOT 上更稳定显示「闲置：真人名」（含关联补种与接管清理）。
+- 自由镜头飞行中退回主菜单或换服时，可能因旧视角写入导致的闪退。
+	Skeeto Core:
+Added:
+- Combat visuals: Free Camera — fly the view while the body stays put (WASD / Space / Ctrl·Shift); off by default. Bind skeeto_freecam or toggle from the settings page.
+Fixed:
+- Team/world names more reliably show "Idle: player name" on idle bots (link reseeding and take-over cleanup).
+- Crash when leaving Free Camera flight to the main menu or joining another server (stale view write).
+
 ## 2.2.21（2026-11-21）
 	Skeeto核心：
 新增：

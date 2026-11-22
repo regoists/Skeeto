@@ -67,6 +67,9 @@ skeeto_cache_reclaim
     请求回收 Skeeto 已外置缓存；缓存搬运未在本次启动开启时无操作。
 skeeto_tps_aim 0|1|status
     关闭 / 开启第三人称居中瞄准修正，或查询状态；不带参数时查询。
+skeeto_freecam [0|1|toggle|status]
+    自由镜头飞行；不带参数或 toggle 切换飞行，0/1 开关功能，status 查询。功能默认关；可在键盘/鼠标 Skeeto 分区绑定。
+    Free-camera flight; no argument or toggle flips flight, 0/1 enables the feature, status reports. Off by default; bindable under Keyboard/Mouse (Skeeto).
 skeeto_hold_semiauto 0|1|status
     关闭 / 开启半自动武器按住开火，或查询状态；不带参数时查询。
 

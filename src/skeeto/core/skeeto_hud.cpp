@@ -1214,8 +1214,14 @@ const wchar_t* TeamHudIdleNameForBot(int ent, int userid) {
 		if (humanEnt > 0 && EngPlayerInfo(humanEnt, &pi)
 			&& pi.userid == link.playerUserId && !PlayerInfoIsBot(pi)) {
 			link.playerEnt = humanEnt;
+			if (!link.playerName[0] && pi.name[0]) {
+				MultiByteToWideChar(CP_UTF8, 0, pi.name, -1, link.playerName, 24);
+				link.playerName[23] = 0;
+			}
 			return link.playerName[0] ? link.playerName : nullptr;
 		}
+		// Keep the captured human name while the idle body is still linked.
+		if (link.playerName[0]) return link.playerName;
 		if (!link.born || GetTickCount() - link.born > 1500u)
 			link = {};
 		return nullptr;
@@ -1233,10 +1239,8 @@ int TeamHudIdleBodyForEnt(int ent) {
 	return 0;
 }
 
-void TeamHudOnBotSwap(const char* eventName, int playerUserId, int botUserId) {
-	if (!g_optTeamHud) return;
-	if (!eventName || playerUserId <= 0 || botUserId <= 0) return;
-	const bool takeover = eventName[0] == 'b';
+static void TeamHudSeedIdleLink(int playerUserId, int botUserId) {
+	if (playerUserId <= 0 || botUserId <= 0) return;
 	const int playerEnt = EngPlayerForUserID(playerUserId);
 	const int botEnt = EngPlayerForUserID(botUserId);
 	int slot = -1;
@@ -1248,11 +1252,6 @@ void TeamHudOnBotSwap(const char* eventName, int playerUserId, int botUserId) {
 		}
 		if (slot < 0 && !g_teamHudIdleLinks[i].playerUserId)
 			slot = i;
-	}
-	if (takeover) {
-		if (slot >= 0 && g_teamHudIdleLinks[slot].playerUserId)
-			g_teamHudIdleLinks[slot] = {};
-		return;
 	}
 	if (slot < 0) slot = 0;
 	TeamHudIdleLink& link = g_teamHudIdleLinks[slot];
@@ -1273,6 +1272,24 @@ void TeamHudOnBotSwap(const char* eventName, int playerUserId, int botUserId) {
 	}
 }
 
+void TeamHudOnBotSwap(const char* eventName, int playerUserId, int botUserId) {
+	// World nameplates reuse TeamHudApplyName; record idle links for either consumer.
+	if (!g_optTeamHud && !TeamWorldNamesWanted()) return;
+	if (!eventName || playerUserId <= 0 || botUserId <= 0) return;
+	const bool takeover = eventName[0] == 'b';
+	if (takeover) {
+		for (int i = 0; i < kTeamHudMax; ++i) {
+			if (g_teamHudIdleLinks[i].playerUserId == playerUserId
+				|| g_teamHudIdleLinks[i].botUserId == botUserId) {
+				g_teamHudIdleLinks[i] = {};
+				break;
+			}
+		}
+		return;
+	}
+	TeamHudSeedIdleLink(playerUserId, botUserId);
+}
+
 void TeamHudApplyName(TeamHudSlot& s, int entIdx) {
 	wchar_t playerName[24]{};
 	bool gotPlayer = false;
@@ -1283,6 +1300,13 @@ void TeamHudApplyName(TeamHudSlot& s, int entIdx) {
 		s.userid = pi.userid;
 	if (havePi && PlayerInfoIsBot(pi)) {
 		const wchar_t* idleName = TeamHudIdleNameForBot(entIdx, pi.userid);
+		if ((!idleName || !idleName[0])) {
+			const int humanUid = SkeetoIdleHumanUserIdForBot(entIdx);
+			if (humanUid > 0) {
+				TeamHudSeedIdleLink(humanUid, pi.userid);
+				idleName = TeamHudIdleNameForBot(entIdx, pi.userid);
+			}
+		}
 		if (idleName && idleName[0]) {
 			swprintf_s(s.name, 24, UiText(UiId::Text_07846cc7, L"闲置：%.19s"), idleName);
 			return;

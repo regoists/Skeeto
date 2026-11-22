@@ -54,6 +54,7 @@
 #include "skeeto_version.generated.h"
 #include "skeeto_ui_text.h"
 #include "skeeto_tps_aim_aac.h"
+#include "skeeto_freecam.h"
 #include "skeeto_mainui_services.h"
 #include "skeeto_escui_io.h"
 #include "skeeto_bootstrap_runtime.h"
@@ -1167,6 +1168,13 @@ static void SurfDrawThirdPersonAimMarker();
 static void SurfTextureFaulted(int id, bool immediate = false);
 static bool XhairThirdPersonActive();
 static void TpsAimPaintPump();
+static void FreeCamPaintPump();
+static void FreeCamSetFlying(bool on);
+static void FreeCamEndSession();
+static void FreeCamToggleFlying();
+static const wchar_t* FreeCamStateText();
+static void SkCmd_FreeCam(int* cmd);
+static void WorldTankPredictClear();
 static void SurfDrawTpsAimCenter();
 static const wchar_t* TpsAimStateText();
 static void ClientUxPaintThrowLand();
@@ -1457,7 +1465,8 @@ static constexpr int kMenuPageClientPerf = 148; // 客户端性能预设（Skeet
 static constexpr int kMenuPageClearDecals = 149; // 自动清理弹孔血迹设置（防闪退子页）
 static constexpr int kMenuPageWModelScale = 150; // W模缩放设置（客户端便利子页）
 static constexpr int kMenuPageWorldTankPredict = 151; // Tank 行为预测（世界 HUD）
-static constexpr int kMenuPageIdNext = 152;
+static constexpr int kMenuPageFreeCam = 152; // 自由镜头（战斗增强与视听优化）
+static constexpr int kMenuPageIdNext = 153;
 static int MenuDiscoveryPageCount(int page);
 static constexpr int kMenuPageCrashGuard = 113;
 static constexpr int kMenuPageCacheOffload = 114;
@@ -1626,6 +1635,7 @@ static constexpr int kMenuPageIdAudit[] = {
 	kMenuPageAlarmCarGlow,
 	kMenuPageClientPerf,
 	kMenuPageWorldTankPredict,
+	kMenuPageFreeCam,
 };
 static constexpr bool MenuPageIdsUnique() {
 	for (int i = 0; i < (int)(sizeof(kMenuPageIdAudit) / sizeof(kMenuPageIdAudit[0])); ++i)
@@ -2643,6 +2653,9 @@ static bool g_optClientHoldSemiFire = false; // hold primary attack to keep a se
 static bool g_optClientHoldSemiAac = false; // optional conservative synthetic cadence
 static bool g_optClientTpsAim = false; // centered shoulder aim; independent of the aim-marker HUD
 static bool g_optClientTpsAimAac = false; // optional parallax transition guard
+static bool g_optFreeCam = false; // free local camera; default off
+static bool g_optFreeCamHideVm = true; // hide FP arms/weapon while flying
+static int g_freeCamSpeed = 1000; // uu/s, clamped 30..2500
 static std::atomic<bool> g_tpsAimResetRequested{false};
 static std::atomic<bool> g_tpsAimReportRequested{false};
 static std::atomic<int> g_tpsAimEventUser{0};
@@ -4955,6 +4968,9 @@ void SaveSettings() {
 	fprintf(f, "client_hold_semiauto_aac=%d\n", g_optClientHoldSemiAac ? 1 : 0);
 	fprintf(f, "client_thirdperson_aim_aac=%d\n", g_optClientTpsAimAac ? 1 : 0);
 	fprintf(f, "client_thirdperson_aim_fix=%d\n", g_optClientTpsAim ? 1 : 0);
+	fprintf(f, "client_freecam=%d\n", g_optFreeCam ? 1 : 0);
+	fprintf(f, "client_freecam_hide_vm=%d\n", g_optFreeCamHideVm ? 1 : 0);
+	fprintf(f, "client_freecam_speed=%d\n", skeeto_freecam::ClampSpeed(g_freeCamSpeed));
 	fprintf(f, "client_hold_semiauto_rate=%d\n", g_holdSemiRate);
 	fprintf(f, "shotgun_autoreload_pump=%d\n", g_optShotgunReloadPump ? 1 : 0);
 	fprintf(f, "shotgun_autoreload_auto=%d\n", g_optShotgunReloadAuto ? 1 : 0);
@@ -6142,6 +6158,18 @@ static bool LoadSettingsClientUxLine(const char* line, bool* hadDirectorHud) {
 		g_optClientTpsAim = v != 0;
 		return true;
 	}
+	if (sscanf(line, "client_freecam=%d", &v) == 1) {
+		g_optFreeCam = v != 0;
+		return true;
+	}
+	if (sscanf(line, "client_freecam_hide_vm=%d", &v) == 1) {
+		g_optFreeCamHideVm = v != 0;
+		return true;
+	}
+	if (sscanf(line, "client_freecam_speed=%d", &v) == 1) {
+		g_freeCamSpeed = skeeto_freecam::ClampSpeed(v);
+		return true;
+	}
 	if (sscanf(line, "crashguard_datacache_mb=%d", &v) == 1) {
 		g_optCrashGuardCacheMb = CrashGuardNormalize(v, true); return true;
 	}
@@ -7245,6 +7273,9 @@ static void LoadSettings() {
 	g_optClientTpsAim = false;
 	g_optClientTpsAimAac = false;
 	g_tpsAimResetRequested.store(true, std::memory_order_release);
+	g_optFreeCam = false;
+	g_optFreeCamHideVm = true;
+	g_freeCamSpeed = 1000;
 	g_holdSemiRate = kHoldSemiRateDefault;
 	g_optShotgunReloadPump = false;
 	g_optShotgunReloadAuto = false;
@@ -8865,6 +8896,20 @@ static void TickPurePolicy(bool connected, bool ingame) {
 				Log("server policy: disconnected — Skeeto features re-enabled");
 			}
 			IdleSwapHudClearQuiet();
+			FreeCamEndSession();
+			// L4D2 无 game_disconnect 事件；退服清理只靠已验证的 !connected 边沿。
+			g_tpsAimResetRequested.store(true, std::memory_order_release);
+			g_lastMusicReset.store(true, std::memory_order_release);
+			g_lastMusicRoundFailed.store(false, std::memory_order_release);
+			g_campaignMapEpoch.fetch_add(1, std::memory_order_relaxed);
+			g_mainUiBattlePending = false;
+			LaserRoundPost(2);
+			WorldTankPredictClear();
+			g_escUiServerMax.store(0, std::memory_order_relaxed);
+			if (TryAcquireSRWLockExclusive(&g_mainUiServerLock)) {
+				g_mainUiCurrentServer = MainUiServerRecord{};
+				ReleaseSRWLockExclusive(&g_mainUiServerLock);
+			}
 		}
 		wasConnected = false;
 		wasInGame = false;
@@ -16295,6 +16340,9 @@ static void HudMapEnterStableArm(const char* why) {
 	g_levelInitResetRequestedAt.store(GetTickCount(), std::memory_order_relaxed);
 	g_mapEnterGameThreadResetPending.store(true, std::memory_order_release);
 	g_mapEnterCvarReapplyPending.store(true, std::memory_order_release);
+	// Drop free-cam flight before the first new-map view; Paint may lag one frame.
+	if (GetCurrentThreadId() == g_paintTid || !g_paintTid)
+		FreeCamEndSession();
 	HudPostMissionQuietClear(why);
 }
 
@@ -17830,6 +17878,7 @@ static void __fastcall Hooked_EnginePaint(void* ecx, void* edx, int mode) {
 	IdleViewRestorePump();
 	IdlePersonRestorePump();
 	TpsAimPaintPump(); // Owns its optional command hook; disabled path performs no engine work.
+	FreeCamPaintPump(); // Shared CreateMove with TPS; own OverrideView / ViewModel hooks.
 	// Idle weapon-slot restore: no HUD, no scan. Must run before the in-game
 	// panel early-out so close/leave-game can drop the snapshot. Closed path
 	// is a few bool/atomic compares.
@@ -18043,7 +18092,7 @@ static void __fastcall Hooked_EnginePaint(void* ecx, void* edx, int mode) {
 		// Text-only and unrelated HUD modules must not inherit material-cache work.
 		// Validate only after this Paint actually requested a cached material.
 		// Chapter stats (held key / settings preview), then the TAB board on top.
-		if (customHudVisible && g_optChapStats)
+		if (customHudVisible && (g_optChapStats || g_optTabBoard))
 			ChapStatsAvatarPrefetch();
 		if (customHudVisible && ChapStatsLiveWanted() && !scoreHudLayoutPreview)
 			ChapStatsPaint(false);
@@ -26952,6 +27001,7 @@ enum class CombatVisualMenuAction : unsigned char {
 	ToggleLaserOutline,
 	OpenInteractScan,
 	OpenGunFeel,
+	OpenFreeCam,
 };
 struct CombatVisualMenuItem {
 	UiId labelId;
@@ -26976,6 +27026,7 @@ static constexpr CombatVisualMenuItem kCombatVisualMenuItems[] = {
 	{UiId::LaserSightOutline, L"[1] 激光红点常驻描边 %s", UiId::LaserSightOutlineHint, L"    只描边原版模型的地上激光红点，隔墙可见。已拾取或装上武器的不描。只有存活的本地生还者能看到。默认关闭。可绑定 skeeto_laser_outline。", UiId{}, L"", CombatVisualMenuAction::ToggleLaserOutline, -1},
 	{UiId::InteractScanEntry, L"[2] 可交互物品扫描 【进入设置】", UiId::InteractScanEntryHint, L"    按下绑定键后，短暂描边周围按钮、门、动态模型和部分物理/可破坏道具。可误报。默认关闭。绑定 skeeto_interact_scan。音效与特效跟物资扫描开关一致。", UiId{}, L"", CombatVisualMenuAction::OpenInteractScan, kMenuPageInteractScan},
 	{UiId::ScriptGunFeelEntry, L"[3] 枪声听感增强，即Gunshot Feel 【进入设置】", UiId::ScriptGunFeelEntryHint, L"    保留原版开火声，再叠一层明显变调的额外枪声。冲击更高，低频更沉，短尾会再跟一声，亮瞬态更尖。与「优化听声辨位」互斥。", UiId{}, L"", CombatVisualMenuAction::OpenGunFeel, kMenuPageGunFeel},
+	{UiId::FreeCamEntry, L"[4] 自由镜头，即Free Camera 【进入设置】", UiId::FreeCamHint, L"    镜头与身体脱钩：WASD 飞行，Space 上升，Ctrl/Shift 下降，鼠标转向。实验性纯客户端视角，默认关。键盘/鼠标里绑定 skeeto_freecam。", UiId{}, L"", CombatVisualMenuAction::OpenFreeCam, kMenuPageFreeCam},
 };
 static constexpr int CombatVisualMenuItemCount() {
 	return static_cast<int>(sizeof(kCombatVisualMenuItems) / sizeof(kCombatVisualMenuItems[0]));
@@ -26989,9 +27040,10 @@ static constexpr bool CombatVisualMenuItemsValid() {
 			|| item.action == CombatVisualMenuAction::OpenForceCvar
 			|| item.action == CombatVisualMenuAction::OpenSafeMusic
 			|| item.action == CombatVisualMenuAction::OpenGunFeel
-			|| item.action == CombatVisualMenuAction::OpenInteractScan) != (item.targetPage >= 0)) return false;
+			|| item.action == CombatVisualMenuAction::OpenInteractScan
+			|| item.action == CombatVisualMenuAction::OpenFreeCam) != (item.targetPage >= 0)) return false;
 	}
-	return CombatVisualMenuItemCount() == 12
+	return CombatVisualMenuItemCount() == 13
 		&& MenuPageCountForItems(CombatVisualMenuItemCount()) == 2;
 }
 static_assert(CombatVisualMenuItemsValid(), "combat and visual menu order/targets need review");
@@ -27183,6 +27235,21 @@ static int ClientPerfGroupFromAction(ClientPerfMenuAction action) {
 	case ClientPerfMenuAction::ToggleListenNet: return 4;
 	}
 	return 0;
+}
+
+enum class FreeCamMenuAction : unsigned char {
+	Toggle, HideVm, Speed, Flip,
+};
+struct FreeCamMenuItem { UiId id; const wchar_t* text; FreeCamMenuAction action; };
+static constexpr FreeCamMenuItem kFreeCamMenuItems[] = {
+	{UiId::FreeCamToggle, L"[1] 自由镜头 %s", FreeCamMenuAction::Toggle},
+	{UiId::FreeCamHideVm, L"[2] 隐藏第一人称武器 %s", FreeCamMenuAction::HideVm},
+	{UiId::FreeCamSpeed, L"[3] 飞行速度 【%d】  - / + 调节", FreeCamMenuAction::Speed},
+	{UiId::FreeCamFlip, L"[4] 立即切换自由镜头", FreeCamMenuAction::Flip},
+};
+static_assert(_countof(kFreeCamMenuItems) <= kMenuItemsPerPage, "free cam settings stay on one page");
+static const FreeCamMenuItem* FreeCamMenuItemAt(int digit) {
+	return digit >= 1 && digit <= (int)_countof(kFreeCamMenuItems) ? &kFreeCamMenuItems[digit - 1] : nullptr;
 }
 
 enum class ElimHudMenuAction : unsigned char {
@@ -29083,6 +29150,7 @@ static int MenuPageSubCount(int page) {
 	case kMenuPageNavSupplies: case kMenuPageNavWeapons: return NavMenuPageCount(page);
 	case kMenuPageAlarmCarGlow: return MenuPageCountForItems(AlarmCarGlowMenuCount());
 	case kMenuPageClientPerf: return MenuPageCountForItems(ClientPerfMenuCount());
+	case kMenuPageFreeCam: return MenuPageCountForItems((int)_countof(kFreeCamMenuItems));
 	default: return 1;   // 其余页都 ≤9
 	}
 }
@@ -30685,6 +30753,7 @@ static void MenuPaintEngine() {
 				case CombatVisualMenuAction::OpenSafeMusic:
 				case CombatVisualMenuAction::OpenGunFeel:
 				case CombatVisualMenuAction::OpenInteractScan:
+				case CombatVisualMenuAction::OpenFreeCam:
 					wcsncpy_s(text, _countof(text), UiText(item->labelId, item->labelFallback), _TRUNCATE);
 					break;
 				default:
@@ -33008,6 +33077,48 @@ static void MenuPaintEngine() {
 							L"    听服 pure/consistency 与 cl_interp_npcs；不改 tick/nb/lerp 主路径。「允许 0 lerp」优先占用 min_interp_ratio。"),
 						MenuHintGap());
 			}
+			footerNav();
+		} else if (g_menuPage == kMenuPageFreeCam) {
+			swprintf_s(buf, 192, UiText(UiId::FreeCamTitle, L"自由镜头  v%s"), SKEETO_VERSION_W);
+			line(10, cTitle, buf);
+			rule();
+			int y = 48;
+			const int lh = MenuDesignLineH();
+			y = SurfWrapDesign(y, cHint, UiText(UiId::FreeCamHint,
+				L"    镜头与身体脱钩：WASD 飞行，Space 上升，Ctrl/Shift 下降，鼠标转向。实验性纯客户端视角，默认关。"), MenuHintGap());
+			y = SurfWrapDesign(y, cHint, UiText(UiId::FreeCamBindHint,
+				L"    在「选项 > 键盘/鼠标」的 Skeeto 分区绑定 skeeto_freecam 切换飞行。"), MenuHintGap());
+			for (int digit = 1; digit <= (int)_countof(kFreeCamMenuItems); ++digit) {
+				const FreeCamMenuItem* item = FreeCamMenuItemAt(digit);
+				if (!item) break;
+				COLORREF color = cText;
+				buf[0] = 0;
+				switch (item->action) {
+				case FreeCamMenuAction::Toggle:
+					swprintf_s(buf, 192, UiText(item->id, item->text), onoff(g_optFreeCam));
+					color = col(g_optFreeCam);
+					break;
+				case FreeCamMenuAction::HideVm:
+					swprintf_s(buf, 192, UiText(item->id, item->text), onoff(g_optFreeCamHideVm));
+					color = col(g_optFreeCamHideVm);
+					break;
+				case FreeCamMenuAction::Speed:
+					swprintf_s(buf, 192, UiText(item->id, item->text), skeeto_freecam::ClampSpeed(g_freeCamSpeed));
+					color = cAdjust;
+					break;
+				case FreeCamMenuAction::Flip:
+					wcsncpy_s(buf, _countof(buf), UiText(item->id, item->text), _TRUNCATE);
+					color = g_optFreeCam ? cText : cMuted;
+					break;
+				default:
+					color = cMuted;
+					break;
+				}
+				MenuRenumberItem(buf, _countof(buf), digit);
+				line(y, color, buf); y += lh;
+			}
+			swprintf_s(buf, 192, UiText(UiId::FreeCamStatus, L"    当前状态：%s"), FreeCamStateText());
+			y = SurfWrapDesign(y, cHint, buf, MenuHintGap());
 			footerNav();
 		} else if (g_menuPage == kMenuPageInteractScan) {
 			line(10, cTitle, UiText(UiId::InteractScanTitle, L"可交互物品扫描"));
@@ -36466,6 +36577,11 @@ static void MenuAdjustCurrentPage(int dir) {
 	if (g_menuPage == kMenuPageAcidOutlineSetup) { MenuCycleAcidOutlineRadius(dir); return; }
 	if (g_menuPage == kMenuPageAlarmCarGlow) {
 		MenuCycleAlarmCarGlowRange(dir);
+		SaveSettings();
+		return;
+	}
+	if (g_menuPage == kMenuPageFreeCam) {
+		g_freeCamSpeed = skeeto_freecam::ClampSpeed(g_freeCamSpeed + dir * 50);
 		SaveSettings();
 		return;
 	}
@@ -40084,6 +40200,8 @@ static void RegisterSkeetoMenuCommand() {
 	g_skeetoMenuCmd = RegisterEngineCommand("skeeto_menu", (void*)&SkCmd_SkeetoMenu,
 		"Toggle Skeeto menu (bind <key> skeeto_menu)");
     RegisterEngineCommand("skeeto_viewmodel_mirror", (void*)&SkCmd_ViewModelMirror, "Control global full-viewmodel mirroring: 0|1|toggle selects global mode; bind supported");
+	RegisterEngineCommand("skeeto_freecam", (void*)&SkCmd_FreeCam,
+		"Free camera flight toggle; 0|1|toggle|status (bindable)");
 	RegisterEngineCommand("skeeto_tps_aim", (void*)&SkCmd_TpsAim,
 		"Centered third-person aim: 0|1|status; no argument reports status");
 	RegisterEngineCommand("skeeto_hold_semiauto", (void*)&SkCmd_HoldSemi,
@@ -41214,6 +41332,42 @@ static void MenuProcessKeyImpl(int digit) {
 		EngClientCmd("play buttons/button14");
 		return;
 	}
+	if (g_menuPage == kMenuPageFreeCam) {
+		if (digit == 0) {
+			g_menuPage = kMenuPageCombatVisual;
+			g_menuSub = 1;
+			g_menuPagePrev = kMenuPageCombatVisual;
+			EngClientCmd("play buttons/button11");
+			return;
+		}
+		const FreeCamMenuItem* item = FreeCamMenuItemAt(digit);
+		if (!item) return;
+		switch (item->action) {
+		case FreeCamMenuAction::Toggle:
+			g_optFreeCam = !g_optFreeCam;
+			if (!g_optFreeCam) FreeCamSetFlying(false);
+			break;
+		case FreeCamMenuAction::HideVm:
+			g_optFreeCamHideVm = !g_optFreeCamHideVm;
+			break;
+		case FreeCamMenuAction::Speed:
+			// 选中调节项；数值只由 -/+ 改，避免与 MenuAdjustCurrentPage 叠一次。
+			break;
+		case FreeCamMenuAction::Flip:
+			if (!g_optFreeCam) {
+				EngClientCmd("play buttons/button10");
+				return;
+			}
+			FreeCamToggleFlying();
+			break;
+		default:
+			return;
+		}
+		SaveSettings();
+		MenuMarkDirty();
+		EngClientCmd("play buttons/button14");
+		return;
+	}
 	if (g_menuPage == kMenuPageAlarmCarGlow) {
 		if (digit == 0) {
 			g_menuPage = kMenuPageSkeetoScript;
@@ -41339,6 +41493,7 @@ static void MenuProcessKeyImpl(int digit) {
 		case CombatVisualMenuAction::OpenSafeMusic:
 		case CombatVisualMenuAction::OpenGunFeel:
 		case CombatVisualMenuAction::OpenInteractScan:
+		case CombatVisualMenuAction::OpenFreeCam:
 			g_menuPage = item->targetPage;
 			if (item->action != CombatVisualMenuAction::OpenSpotlight) g_menuSub = 0;
 			EngClientCmd("play buttons/button14");
@@ -47452,23 +47607,26 @@ static int TabAvatarFetchOne(void* fr, void* ut, uint64_t sid, unsigned char* ou
 		// avatars go blank for 120s after a just-sent request.
 		req(fr, sid, false);
 		int img = 0;
-		bool finalImage = true;
+		bool haveLarge = false;
+		int large = 0;
 		if (largeFn) {
-			const int large = largeFn(fr, sid);
-			if (large > 0) img = large;
-			else finalImage = large < 0;
+			large = largeFn(fr, sid);
+			if (large > 0) { img = large; haveLarge = true; }
 		}
 		if (img <= 0) {
 			img = mediumFn ? mediumFn(fr, sid) : (av ? av(fr, sid) : 0);
-			if (img > 0 && largeFn && !finalImage) finalImage = false;
 		}
+		// 0 / negative handle: Steam has not published the RGBA yet (common for
+		// players who joined after the local client). Keep polling — never hard-fail.
 		if (img <= 0) return 0;
 		uint32_t iw = 0, ih = 0;
-		if (!sz(ut, img, &iw, &ih) || iw == 0 || ih == 0 || iw > (uint32_t)kTabAvPx || ih > (uint32_t)kTabAvPx) return -1;
+		if (!sz(ut, img, &iw, &ih) || iw == 0 || ih == 0 || iw > (uint32_t)kTabAvPx || ih > (uint32_t)kTabAvPx)
+			return 0; // handle can precede size/RGBA readiness for late joiners
 		if (!rgba(ut, img, out, (int)(iw * ih * 4u))) return 0;
 		*w = (int)iw;
 		*h = (int)ih;
-		return finalImage ? 1 : 2;
+		// Medium while large is still missing stays interim so pass-2 can upgrade.
+		return haveLarge ? 1 : 2;
 	} __except (EXCEPTION_EXECUTE_HANDLER) {
 		return -1;
 	}
@@ -47537,24 +47695,28 @@ static void TabAvatarFetch(int maxWork) {
 				a->retryAt = now + 3000u;
 			} else {
 				a->state = kTabAvPending;
-				if (++a->tries > 12) {
+				// Late joiners often need tens of seconds for Steam persona+avatar.
+				// The old 12-try / 60s None window blanked them for the rest of the hold.
+				if (++a->tries > 40) {
 					a->state = kTabAvNone;
 					a->tries = 0;
-					a->retryAt = now + 60000u;
+					a->retryAt = now + 15000u;
 				}
 			}
 		} else if (!have) {
+			// Real faults only (exception / missing Steam iface). Keep short so a
+			// transient miss for a mid-join player can recover in the same match.
 			a->state = kTabAvNone;
-			a->retryAt = now + 120000u;
+			a->retryAt = now + 15000u;
 		}
 	}
 	}
 }
 
-static void TabAvatarUploadTick() {
+static void TabAvatarUploadTick(int budget = 2) {
 	if (!g_surf) return; // keep RGBA avatar data pending until the Paint Surface exists
 	if (!g_engine || !EngInGame() || EngDrawingLoading()) return;
-	int budget = 2;
+	if (budget < 1) budget = 1;
 	for (int i = 0; i < kTabAvMax && budget > 0; ++i) {
 		TabAvatar& a = g_tbAv[i];
 		if (a.state == kTabAvReady && a.epoch != g_sktFontEpoch) a.state = kTabAvRgba;
@@ -47572,6 +47734,14 @@ static void TabAvatarUploadTick() {
 		a.epoch = g_sktFontEpoch;
 		--budget;
 	}
+}
+
+// In-game only: pull missing avatars and upload pending RGBA before the settle
+// snapshot goes quiet (loading Paint must not CreateNewTextureID).
+static void ChapStatsAvatarFlush() {
+	if (!g_engine || !EngInGame() || EngDrawingLoading()) return;
+	TabAvatarFetch(16);
+	TabAvatarUploadTick(kTabAvMax);
 }
 
 static int TabAvatarTex(uint32_t acct) {
@@ -47769,6 +47939,13 @@ static int TabBoardIdleHumanUid(void* botEnt) {
 	if (!botEnt || g_tbOffHumanSpecUid < 0) return 0;
 	const int hu = TabReadInt(botEnt, g_tbOffHumanSpecUid, 0);
 	return hu > 0 ? hu : 0;
+}
+int SkeetoIdleHumanUserIdForBot(int botEnt) {
+	if (botEnt <= 0) return 0;
+	if (!g_tbPrOffsDone) TabPrResolveOffsets();
+	void* e = EntGet(botEnt);
+	if (!e || !EntReadable(e)) return 0;
+	return TabBoardIdleHumanUid(e);
 }
 
 static int TabBoardCreditUid(int uid) {
@@ -48356,19 +48533,20 @@ static void TabBoardPaint() {
 	int sw = 0, sh = 0;
 	if (!SurfGetScreenSize(&sw, &sh) || sw < 320 || sh < 240) return;
 	const bool icons = !g_tbQuietPaint;
-	if (icons) TabAvatarUploadTick();
 	TabBoardGather();
 	{
 		// Avatars still missing while the board is open: retry once per second.
+		// Fetch before upload so a just-arrived late joiner can bind this frame.
 		const DWORD now = GetTickCount();
 		if (!g_tbAvRetryAt || now - g_tbAvRetryAt >= 1000u) {
 			g_tbAvRetryAt = now;
 			bool missing = false;
 			for (int i = 0; i < g_tbRowN && !missing; ++i)
 				if (g_tbRows[i].acct && TabAvatarTex(g_tbRows[i].acct) < 0) missing = true;
-			if (missing) TabAvatarFetch(4);
+			if (missing) TabAvatarFetch(8);
 		}
 	}
+	if (icons) TabAvatarUploadTick(4);
 
 	const int rows = g_tbRowN > 0 ? g_tbRowN : 1;
 	const bool twoGroups = g_tbSurvN > 0 && g_tbInfN + g_tbInfMore > 0;
@@ -49819,6 +49997,9 @@ static void ChapStatsRefreshPlayers() {
 			if (team != 2) continue; // only survivors get an empty row
 			r = ChapStatsRecFor(pi.userid);
 			if (!r) continue;
+			// RecFor already filled identity; refresh again so a late friendsID
+			// that arrived between EngPlayerForUserID and this pass is kept.
+			ChapStatsFillIdentity(*r, i, pi);
 		} else {
 			uint32_t acct = 0;
 			memcpy(&acct, pi.pad1 + 36, sizeof(acct));
@@ -50032,6 +50213,7 @@ static void ChapStatsWarmAfterFreeze() {
 
 static void ChapStatsFreeze() {
 	ChapStatsFreezeData(true);
+	ChapStatsAvatarFlush();
 	ChapStatsWarmAfterFreeze();
 }
 
@@ -50382,15 +50564,17 @@ static void ChapStatsOnToggle() {
 
 // Normal (non-quiet) HUD paint only: the snapshot is drawn during visual quiet,
 // where no texture upload happens, so Steam avatars are cached ahead of time.
-// Every 3 s: <= 2 Steam requests (TAB board cache) and <= 2 texture uploads.
+// Also warms the shared TAB cache while either feature is on, so a player who
+// joins mid-match is requested before the board is held open.
+// Every 1 s: <= 8 Steam requests (missing first) and <= 2 texture uploads.
 static DWORD g_csAvAt = 0;
 static void ChapStatsAvatarPrefetch() {
 	const DWORD now = GetTickCount();
-	if (g_csAvAt && (LONG)(now - g_csAvAt) < 3000) return;
+	if (g_csAvAt && (LONG)(now - g_csAvAt) < 1000) return;
 	g_csAvAt = now;
-	TabAvatarFetch(2);
+	TabAvatarFetch(8);
 	TabAvatarUploadTick();
-	ChapStatsPrefetchFaces();
+	if (g_optChapStats) ChapStatsPrefetchFaces();
 }
 
 // ---- paint -------------------------------------------------------------------
@@ -51908,6 +52092,7 @@ static bool g_kbSecFileReady = false; // mount retries never rewrite a ready fil
 static bool g_kbSecWaiting = false;   // worker write in flight
 static bool g_kbSecGaveUp = false;
 static bool g_kbSecCleanPosted = false;
+static constexpr int kKbListSectionRev = 2; // bump when Skeeto kb_act rows change
 static int g_kbSecSig = -1;
 static int g_kbSecFails = 0;
 static int g_kbSecReaddLog = 4;
@@ -51966,6 +52151,7 @@ static void KbListSectionBuild(char* out, int cap) {
 		{ "skeeto_acid_outline_toggle", UiId::KbSecAcid, L"口水范围轮廓 开 / 关" },
 		{ "skeeto_supply_scan", UiId::KbSecSupplyScan, L"物资扫描，即Survivor Sense" },
 		{ "skeeto_interact_scan", UiId::KbSecInteractScan, L"可交互物品扫描" },
+		{ "skeeto_freecam", UiId::KbSecFreeCam, L"自由镜头切换飞行" },
 		{ "skeeto_bug_teleport", UiId::KbSecBugTeleport, L"传送到最近无敌Bug点（仅本地服）" },
 		{ "skt_cfg_next", UiId::KbSecCfgNext, L"下一个 Config Override 预设" },
 		{ "skt_cfg_prev", UiId::KbSecCfgPrev, L"上一个 Config Override 预设" },
@@ -52044,7 +52230,7 @@ static void KbListSectionTick() {
 		g_kbSecGaveUp = true;
 		return;
 	}
-	const int sig = g_uiEnglish.load(std::memory_order_relaxed) ? 1 : 0;
+	const int sig = (g_uiEnglish.load(std::memory_order_relaxed) ? 1 : 0) | (kKbListSectionRev << 1);
 	if (!g_kbSecFileReady || sig != g_kbSecSig) {
 		if (g_kbSecReq.load(std::memory_order_acquire) != 0) {
 			g_kbSecNextAt = now + 500u;
@@ -59324,20 +59510,504 @@ static bool TpsAimCommitCommand(TpsAimCommandPrefix* cmd, const float* eye, cons
 }
 // TPS_AIM_GEOMETRY_END
 
+// Shared ClientMode CreateMove owner state (TPS aim + FreeCam). Declared before
+// FreeCam so view hooks can reuse the same resolved mode pointer.
+static std::atomic<void*> g_tpsAimOriginal{nullptr};
+static void** g_tpsAimSlot = nullptr;
+static void* g_tpsAimMode = nullptr;
+static uint8_t* g_tpsAimClient = nullptr;
+static bool g_tpsAimResolved = false, g_tpsAimRejected = false, g_tpsAimHooked = false;
+
+// ---- Free Camera (ClientMode OverrideView + shared CreateMove) --------------
+// Detaches the local view while the pawn stays put. Default off. Same retail
+// ClientMode fingerprint as TPS aim; CreateMove shares that one slot.
+enum class FreeCamState { Off, Waiting, Unsupported, Conflict, Idle, Flying, Paused };
+static FreeCamState g_freeCamState = FreeCamState::Off;
+static bool g_freeCamFlying = false;
+static bool g_freeCamPaused = false;
+static bool g_freeCamHaveAim = false;
+static float g_freeCamLockedAim[3]{};
+static skeeto_freecam::Camera g_freeCam{};
+static skeeto_freecam::Input g_freeCamInput{};
+static skeeto_freecam::MouseQueue g_freeCamMouse{};
+static DWORD g_freeCamAdvMs = 0;
+static void** g_freeCamViewSlot = nullptr;
+static void** g_freeCamVmSlot = nullptr;
+static std::atomic<void*> g_freeCamViewOriginal{nullptr};
+static std::atomic<void*> g_freeCamVmOriginal{nullptr};
+static bool g_freeCamViewHooked = false, g_freeCamVmHooked = false;
+static bool g_freeCamViewRejected = false, g_freeCamVmRejected = false;
+static DWORD g_freeCamTryAt = 0;
+static unsigned g_freeCamTries = 0;
+static bool g_freeCamDrawOpen = false;
+static bool g_freeCamDrawRejected = false;
+static HMODULE g_freeCamDrawMod = nullptr;
+
+struct FreeCamCmd {
+	uint32_t vtable;
+	int number, tick;
+	float angles[3], forward, side, up;
+	unsigned buttons;
+	unsigned char impulse, pad[3];
+	int weaponselect, weaponsubtype, random_seed;
+	short mousedx, mousedy;
+};
+static_assert(offsetof(FreeCamCmd, angles) == 0x0C
+	&& offsetof(FreeCamCmd, buttons) == 0x24
+	&& offsetof(FreeCamCmd, mousedx) == 0x38
+	&& sizeof(FreeCamCmd) == 0x3C, "retail free-cam usercmd prefix");
+
+// CViewSetup origin/angles on the verified L4D2 layout (four bytes earlier than SDK2013).
+static constexpr unsigned kFreeCamViewOrigin = 60;
+static constexpr unsigned kFreeCamViewAngles = 72;
+
+// Retail x86 client.dll SHA256 c0a8e1e8...eeb4af1f: C_TerrorPlayer::DrawModel local-player
+// JZ rel8 gate. PassThrough (+0) draws the world body while the free camera is out of body.
+static constexpr uint32_t kFreeCamDrawGateRva = 0x2233f1u;
+static constexpr uint32_t kFreeCamDrawDispRva = 0x223402u;
+static constexpr uint8_t kFreeCamDrawOrig = 0x13;
+static constexpr uint8_t kFreeCamDrawPass = 0x00;
+static constexpr uint8_t kFreeCamDrawGate[] = {
+	0x57, 0xe8, 0x79, 0xc2, 0xde, 0xff, 0x83, 0xc4, 0x04,
+	0x80, 0xb8, 0xec, 0x25, 0x00, 0x00, 0x00, 0x74, 0x13,
+	0x8b, 0x55, 0x0c, 0x52, 0x53, 0x8b, 0xce, 0xe8,
+	0xf1, 0x0b, 0xe4, 0xff, 0x5b, 0x5f, 0x5e, 0x5d,
+	0xc2, 0x08, 0x00, 0x5b, 0x5f, 0x33, 0xc0, 0x5e, 0x5d,
+	0xc2, 0x08, 0x00
+};
+static_assert(kFreeCamDrawDispRva - kFreeCamDrawGateRva == 17
+	&& kFreeCamDrawGate[17] == kFreeCamDrawOrig, "free-cam DrawModel gate layout");
+
+static bool FreeCamReadable(const void* p, size_t bytes) {
+	return skmem::SpanProbeAt(p, bytes, (uintptr_t)_ReturnAddress());
+}
+static bool TpsAimResolve(); // shared ClientMode CreateMove resolve (defined below)
+static void FreeCamSetDrawLocal(bool enable);
+
+static bool FreeCamWanted() {
+	return g_optFreeCam && g_run.load(std::memory_order_relaxed) && SkeetoFeaturesOn();
+}
+static bool FreeCamSceneReady() {
+	return EngInGame() && !EngDrawingLoading() && !g_hudPostMissionQuiet
+		&& !g_mapEnterGameThreadResetPending.load(std::memory_order_acquire);
+}
+static bool ClientModeMoveWanted() {
+	return (g_optClientTpsAim || g_optFreeCam) && g_run.load(std::memory_order_relaxed) && SkeetoFeaturesOn();
+}
+static void FreeCamHaltMotion() {
+	g_freeCam.Halt();
+	g_freeCamInput = {};
+	g_freeCamMouse.Drop();
+	g_freeCamAdvMs = 0;
+}
+static void FreeCamSetFlying(bool on) {
+	if (!on) {
+		g_freeCamFlying = false;
+		g_freeCamHaveAim = false;
+		FreeCamHaltMotion();
+		g_freeCam.ready = false;
+		FreeCamSetDrawLocal(false);
+		if (g_freeCamState == FreeCamState::Flying || g_freeCamState == FreeCamState::Paused)
+			g_freeCamState = FreeCamWanted() ? FreeCamState::Idle : FreeCamState::Off;
+		return;
+	}
+	if (!FreeCamWanted() || !FreeCamSceneReady()) return;
+	g_freeCamFlying = true;
+	g_freeCamHaveAim = false;
+	FreeCamHaltMotion();
+	g_freeCam.ready = false;
+	g_freeCamState = FreeCamState::Waiting;
+}
+// End out-of-body flight across disconnect / load / map-enter. Option may stay on.
+static void FreeCamEndSession() {
+	if (g_freeCamFlying || g_freeCamDrawOpen || g_freeCam.ready || g_freeCamHaveAim)
+		FreeCamSetFlying(false);
+	else
+		FreeCamHaltMotion();
+}
+static void FreeCamToggleFlying() {
+	FreeCamSetFlying(!g_freeCamFlying);
+}
+static const wchar_t* FreeCamStateText() {
+	if (!g_optFreeCam) return UiText(UiId::FreeCamOff, L"已关闭");
+	switch (g_freeCamState) {
+	case FreeCamState::Unsupported: return UiText(UiId::FreeCamUnsupported, L"当前游戏版本不受支持，未改视角");
+	case FreeCamState::Conflict: return UiText(UiId::FreeCamConflict, L"ClientMode 接口变化，已停止");
+	case FreeCamState::Waiting: return UiText(UiId::FreeCamWaiting, L"等待 ClientMode 钩子就绪");
+	case FreeCamState::Idle: return UiText(UiId::FreeCamIdle, L"已就绪 — 绑定 skeeto_freecam 或「立即切换」");
+	case FreeCamState::Flying: return UiText(UiId::FreeCamFlying, L"飞行中");
+	case FreeCamState::Paused: return UiText(UiId::FreeCamPaused, L"已暂停（菜单 / 失焦）");
+	default: return UiText(UiId::FreeCamOff, L"已关闭");
+	}
+}
+static void __fastcall Hooked_FreeCamOverrideView(void* self, void*, void* setup);
+static bool __fastcall Hooked_FreeCamShouldDrawViewModel(void* self, void*);
+static bool FreeCamSwapSlot(void** slot, void* expected, void* next) {
+	if (!slot || !FreeCamReadable(slot, sizeof(void*))) return false;
+	DWORD old = 0;
+	if (!VirtualProtect(slot, sizeof(void*), PAGE_EXECUTE_READWRITE, &old)) return false;
+	const bool ok = InterlockedCompareExchangePointer((void* volatile*)slot, next, expected) == expected;
+	DWORD unused = 0;
+	VirtualProtect(slot, sizeof(void*), old, &unused);
+	return ok;
+}
+static void FreeCamUnhookView() {
+	if (g_freeCamViewHooked && g_freeCamViewSlot) {
+		FreeCamSwapSlot(g_freeCamViewSlot, (void*)&Hooked_FreeCamOverrideView,
+			g_freeCamViewOriginal.load(std::memory_order_acquire));
+		g_freeCamViewHooked = false;
+	}
+}
+static void FreeCamUnhookVm() {
+	if (g_freeCamVmHooked && g_freeCamVmSlot) {
+		FreeCamSwapSlot(g_freeCamVmSlot, (void*)&Hooked_FreeCamShouldDrawViewModel,
+			g_freeCamVmOriginal.load(std::memory_order_acquire));
+		g_freeCamVmHooked = false;
+	}
+}
+
+static bool FreeCamReadView(void* setup, skeeto_freecam::Vec3* origin, skeeto_freecam::Vec3* angles) {
+	if (!setup || !origin || !angles) return false;
+	int w = 0, h = 0;
+	float fov = 0.f, fovVm = 0.f, zNear = 0.f, zFar = 0.f;
+	if (!FreeCamReadable(setup, 92)) return false;
+	memcpy(&w, (char*)setup + 16, 4);
+	memcpy(&h, (char*)setup + 24, 4);
+	memcpy(&fov, (char*)setup + 52, 4);
+	memcpy(&fovVm, (char*)setup + 56, 4);
+	memcpy(origin, (char*)setup + kFreeCamViewOrigin, 12);
+	memcpy(angles, (char*)setup + kFreeCamViewAngles, 12);
+	memcpy(&zNear, (char*)setup + 84, 4);
+	memcpy(&zFar, (char*)setup + 88, 4);
+	return w >= 64 && w <= 32768 && h >= 64 && h <= 32768
+		&& std::isfinite(fov) && fov >= 35.f && fov <= 160.f
+		&& std::isfinite(fovVm) && fovVm > 20.f && fovVm < 180.f
+		&& skeeto_freecam::Finite(*origin) && skeeto_freecam::Finite(*angles)
+		&& std::fabs(angles->x) <= 90.f && std::fabs(angles->y) <= 720.f
+		&& std::isfinite(zNear) && zNear > 0.f && zNear < 100.f
+		&& std::isfinite(zFar) && zFar > zNear + 100.f && zFar < 2000000.f;
+}
+static bool FreeCamWriteView(void* setup, const skeeto_freecam::Vec3& origin, const skeeto_freecam::Vec3& angles) {
+	if (!setup || !FreeCamReadable(setup, 92)) return false;
+	memcpy((char*)setup + kFreeCamViewOrigin, &origin, 12);
+	memcpy((char*)setup + kFreeCamViewAngles, &angles, 12);
+	return true;
+}
+static bool FreeCamDrawGateMatch(const uint8_t* data, bool allowPass) {
+	if (!data) return false;
+	for (size_t i = 0; i < sizeof(kFreeCamDrawGate); ++i) {
+		if (i == 17) {
+			if (data[i] != kFreeCamDrawOrig && !(allowPass && data[i] == kFreeCamDrawPass))
+				return false;
+		} else if (data[i] != kFreeCamDrawGate[i]) {
+			return false;
+		}
+	}
+	return true;
+}
+static void FreeCamSetDrawLocal(bool enable) {
+	if (GetCurrentThreadId() != g_paintTid) return;
+	if (!enable) {
+		if (!g_freeCamDrawOpen) return;
+		HMODULE mod = GetModuleHandleA("client.dll");
+		if (!mod || mod != g_freeCamDrawMod) {
+			g_freeCamDrawOpen = false;
+			g_freeCamDrawRejected = true;
+			g_freeCamDrawMod = nullptr;
+			return;
+		}
+		uint8_t* gate = (uint8_t*)mod + kFreeCamDrawGateRva;
+		uint8_t* disp = (uint8_t*)mod + kFreeCamDrawDispRva;
+		if (!FreeCamReadable(gate, sizeof(kFreeCamDrawGate)) || !IsExec(disp)
+			|| !FreeCamDrawGateMatch(gate, true) || *disp != kFreeCamDrawPass) {
+			g_freeCamDrawOpen = false;
+			g_freeCamDrawRejected = true;
+			g_freeCamDrawMod = nullptr;
+			return;
+		}
+		const uint8_t orig = kFreeCamDrawOrig;
+		if (!AfkWrite(disp, &orig, 1) || *disp != kFreeCamDrawOrig) {
+			g_freeCamDrawRejected = true;
+			g_freeCamDrawOpen = false;
+			g_freeCamDrawMod = nullptr;
+			return;
+		}
+		g_freeCamDrawOpen = false;
+		g_freeCamDrawMod = nullptr;
+		return;
+	}
+	if (g_freeCamDrawOpen || g_freeCamDrawRejected) return;
+	HMODULE mod = GetModuleHandleA("client.dll");
+	if (!mod) return;
+	const auto dos = (const IMAGE_DOS_HEADER*)mod;
+	if (dos->e_magic != IMAGE_DOS_SIGNATURE || dos->e_lfanew <= 0 || dos->e_lfanew > 4096) {
+		g_freeCamDrawRejected = true;
+		return;
+	}
+	const auto pe = (const IMAGE_NT_HEADERS32*)((const uint8_t*)mod + dos->e_lfanew);
+	if (pe->Signature != IMAGE_NT_SIGNATURE || pe->FileHeader.Machine != IMAGE_FILE_MACHINE_I386
+		|| pe->FileHeader.TimeDateStamp != 0x6A440ECFu || pe->OptionalHeader.SizeOfImage != 0x963000u) {
+		g_freeCamDrawRejected = true;
+		return;
+	}
+	uint8_t* gate = (uint8_t*)mod + kFreeCamDrawGateRva;
+	uint8_t* disp = (uint8_t*)mod + kFreeCamDrawDispRva;
+	if (!FreeCamReadable(gate, sizeof(kFreeCamDrawGate)) || !IsExec(disp)
+		|| !FreeCamDrawGateMatch(gate, true)) {
+		g_freeCamDrawRejected = true;
+		return;
+	}
+	if (*disp == kFreeCamDrawPass) {
+		// Already pass-through (e.g. another local-body patch). Do not own restore.
+		return;
+	}
+	if (*disp != kFreeCamDrawOrig) {
+		g_freeCamDrawRejected = true;
+		return;
+	}
+	const uint8_t pass = kFreeCamDrawPass;
+	if (!AfkWrite(disp, &pass, 1) || *disp != kFreeCamDrawPass) {
+		g_freeCamDrawRejected = true;
+		return;
+	}
+	g_freeCamDrawOpen = true;
+	g_freeCamDrawMod = mod;
+}
+static void FreeCamApplyCreateMove(void* command) {
+	if (!command || !FreeCamReadable(command, sizeof(FreeCamCmd))) return;
+	FreeCamCmd* cmd = (FreeCamCmd*)command;
+	if (cmd->number < 0) return;
+	if (!g_freeCamHaveAim) {
+		g_freeCamLockedAim[0] = cmd->angles[0];
+		g_freeCamLockedAim[1] = cmd->angles[1];
+		g_freeCamLockedAim[2] = cmd->angles[2];
+		g_freeCamHaveAim = true;
+	}
+	// Flight keys come from the physical keyboard, never from usercmd buttons.
+	// Reading IN_DUCK/IN_JUMP would briefly leak crouch/jump to the server body.
+	const bool focused = GetForegroundWindow() == g_gameHwnd;
+	if (!g_freeCamPaused && focused) {
+		g_freeCamMouse.Push(cmd->mousedx, cmd->mousedy);
+		const auto down = [](int vk) { return (GetAsyncKeyState(vk) & 0x8000) != 0; };
+		skeeto_freecam::Input in{};
+		in.forward = (float)((int)down('W') - (int)down('S'));
+		in.side = (float)((int)down('D') - (int)down('A'));
+		in.up = (float)((int)down(VK_SPACE)
+			- (int)(down(VK_SHIFT) || down(VK_LSHIFT) || down(VK_RSHIFT)
+				|| down(VK_CONTROL) || down(VK_LCONTROL) || down(VK_RCONTROL)));
+		g_freeCamInput = in;
+	} else {
+		g_freeCamInput = {};
+		g_freeCamMouse.Drop();
+	}
+	cmd->angles[0] = g_freeCamLockedAim[0];
+	cmd->angles[1] = g_freeCamLockedAim[1];
+	cmd->angles[2] = g_freeCamLockedAim[2];
+	cmd->forward = cmd->side = cmd->up = 0.f;
+	cmd->buttons = 0;
+	cmd->impulse = 0;
+	cmd->weaponselect = 0;
+	cmd->mousedx = cmd->mousedy = 0;
+	EngSetViewAngles(g_freeCamLockedAim);
+}
+static void __fastcall Hooked_FreeCamOverrideView(void* self, void*, void* setup) {
+	using Fn = void(__thiscall*)(void*, void*);
+	Fn original = (Fn)g_freeCamViewOriginal.load(std::memory_order_acquire);
+	if (original) original(self, setup);
+	if (GetCurrentThreadId() != g_paintTid || self != g_tpsAimMode) return;
+	if (!FreeCamWanted() || !g_freeCamFlying || !setup) return;
+	// Leave the native view alone outside an active in-game scene, and while paused.
+	if (!FreeCamSceneReady()) {
+		FreeCamEndSession();
+		return;
+	}
+	if (g_freeCamPaused) {
+		FreeCamHaltMotion();
+		g_freeCamState = FreeCamState::Paused;
+		return;
+	}
+	skeeto_freecam::Vec3 origin{}, angles{};
+	if (!FreeCamReadView(setup, &origin, &angles)) return;
+	g_freeCam.speed = (float)skeeto_freecam::ClampSpeed(g_freeCamSpeed);
+	if (!g_freeCam.ready) g_freeCam.Start(origin, angles);
+	if (!g_freeCam.ready) return;
+	const DWORD now = GetTickCount();
+	float dt = 0.f;
+	if (g_freeCamAdvMs && now != g_freeCamAdvMs && now > g_freeCamAdvMs) {
+		dt = (float)(now - g_freeCamAdvMs) * 0.001f;
+		if (dt > 0.2f) dt = 0.f; // gap: keep pose, drop velocity step
+	}
+	g_freeCamAdvMs = now;
+	if (dt > 0.f) {
+		float mdx = 0.f, mdy = 0.f;
+		g_freeCamMouse.Take(4096, &mdx, &mdy);
+		g_freeCam.Look(mdx, mdy);
+		g_freeCam.Advance(g_freeCamInput, dt);
+	}
+	if (!FreeCamWriteView(setup, g_freeCam.origin, g_freeCam.angles)) {
+		FreeCamSetFlying(false);
+		g_freeCamState = FreeCamState::Conflict;
+		return;
+	}
+	g_freeCamState = FreeCamState::Flying;
+}
+static bool __fastcall Hooked_FreeCamShouldDrawViewModel(void* self, void*) {
+	using Fn = bool(__thiscall*)(void*);
+	Fn original = (Fn)g_freeCamVmOriginal.load(std::memory_order_acquire);
+	const bool native = original ? original(self) : true;
+	if (GetCurrentThreadId() != g_paintTid || self != g_tpsAimMode) return native;
+	if (FreeCamWanted() && g_freeCamFlying && g_optFreeCamHideVm) return false;
+	return native;
+}
+static bool FreeCamResolveView() {
+	if (g_freeCamViewRejected || !g_tpsAimResolved || !g_tpsAimClient || !g_tpsAimMode) return false;
+	void** vt = *(void***)g_tpsAimMode;
+	if (!FreeCamReadable(vt, 31 * sizeof(void*)) || !IsExec(vt[19])) return false;
+	void* original = g_freeCamViewOriginal.load(std::memory_order_acquire);
+	if (original && (&vt[19] != g_freeCamViewSlot || vt[19] != original)) {
+		g_freeCamViewRejected = true;
+		g_freeCamState = FreeCamState::Conflict;
+		return false;
+	}
+	if (!original) {
+		g_freeCamViewSlot = &vt[19];
+		g_freeCamViewOriginal.store(vt[19], std::memory_order_release);
+	}
+	HMODULE pinned = nullptr;
+	if (!GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN,
+		(LPCSTR)&Hooked_FreeCamOverrideView, &pinned)) return false;
+	if (!FreeCamSwapSlot(g_freeCamViewSlot, g_freeCamViewOriginal.load(std::memory_order_acquire),
+		(void*)&Hooked_FreeCamOverrideView)) {
+		g_freeCamViewRejected = true;
+		g_freeCamState = FreeCamState::Conflict;
+		return false;
+	}
+	g_freeCamViewHooked = true;
+	return true;
+}
+static bool FreeCamResolveVm() {
+	if (g_freeCamVmRejected || !g_tpsAimResolved || !g_tpsAimClient || !g_tpsAimMode) return false;
+	if (!g_optFreeCamHideVm) return true;
+	void** vt = *(void***)g_tpsAimMode;
+	if (!FreeCamReadable(vt, 31 * sizeof(void*)) || !IsExec(vt[30])) return false;
+	void* original = g_freeCamVmOriginal.load(std::memory_order_acquire);
+	if (original && (&vt[30] != g_freeCamVmSlot || vt[30] != original)) {
+		g_freeCamVmRejected = true;
+		return false;
+	}
+	if (!original) {
+		g_freeCamVmSlot = &vt[30];
+		g_freeCamVmOriginal.store(vt[30], std::memory_order_release);
+	}
+	HMODULE pinned = nullptr;
+	if (!GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN,
+		(LPCSTR)&Hooked_FreeCamShouldDrawViewModel, &pinned)) return false;
+	if (!FreeCamSwapSlot(g_freeCamVmSlot, g_freeCamVmOriginal.load(std::memory_order_acquire),
+		(void*)&Hooked_FreeCamShouldDrawViewModel)) {
+		g_freeCamVmRejected = true;
+		return false;
+	}
+	g_freeCamVmHooked = true;
+	return true;
+}
+static void FreeCamPaintPump() {
+	if (GetCurrentThreadId() != g_paintTid) return;
+	const bool wanted = FreeCamWanted();
+	const bool inScene = FreeCamSceneReady();
+	const bool shouldPause = g_menuVisible || EngGameUiVisible() || !inScene;
+	if (g_freeCamPaused != shouldPause) {
+		g_freeCamPaused = shouldPause;
+		if (shouldPause) FreeCamHaltMotion();
+	}
+	// Flight must not survive disconnect / loading / map-enter. Leaving it armed
+	// rewrites the next session's CViewSetup with the previous map's free-cam pose.
+	if (!inScene) FreeCamEndSession();
+	if (!wanted) {
+		FreeCamEndSession();
+		FreeCamUnhookView();
+		FreeCamUnhookVm();
+		g_freeCamState = FreeCamState::Off;
+		return;
+	}
+	if (g_freeCamState == FreeCamState::Unsupported || g_freeCamState == FreeCamState::Conflict) return;
+	if (!inScene) {
+		if (g_freeCamViewHooked) g_freeCamState = FreeCamState::Idle;
+		else if (!g_freeCamViewRejected) g_freeCamState = FreeCamState::Waiting;
+		return;
+	}
+	const DWORD now = GetTickCount();
+	if ((!g_freeCamViewHooked || (g_optFreeCamHideVm && !g_freeCamVmHooked))
+		&& (!g_freeCamTryAt || now - g_freeCamTryAt >= 1000u) && g_freeCamTries < 60) {
+		g_freeCamTryAt = now;
+		++g_freeCamTries;
+		if (!g_tpsAimResolved && !g_tpsAimRejected) TpsAimResolve();
+		if (g_tpsAimRejected) {
+			g_freeCamState = FreeCamState::Unsupported;
+			return;
+		}
+		if (g_tpsAimResolved) {
+			if (!g_freeCamViewHooked && !g_freeCamViewRejected) FreeCamResolveView();
+			if (g_optFreeCamHideVm && !g_freeCamVmHooked && !g_freeCamVmRejected) FreeCamResolveVm();
+		}
+	}
+	if (g_freeCamViewHooked && g_freeCamViewSlot && *g_freeCamViewSlot != (void*)&Hooked_FreeCamOverrideView) {
+		g_freeCamViewHooked = false;
+		g_freeCamViewRejected = true;
+		FreeCamSetFlying(false);
+		g_freeCamState = FreeCamState::Conflict;
+		return;
+	}
+	if (!g_freeCamFlying) {
+		FreeCamSetDrawLocal(false);
+		if (g_freeCamViewHooked) g_freeCamState = FreeCamState::Idle;
+		else if (!g_freeCamViewRejected) g_freeCamState = FreeCamState::Waiting;
+	} else if (g_freeCamPaused) {
+		FreeCamSetDrawLocal(true);
+		g_freeCamState = FreeCamState::Paused;
+	} else {
+		FreeCamSetDrawLocal(true);
+		g_freeCamState = FreeCamState::Flying;
+	}
+}
+static void SkCmd_FreeCam(int* cmd) {
+	const char* arg = CmdArg(cmd, 1);
+	const int argc = CmdArgC(cmd);
+	if (argc > 2 || (argc > 1 && arg[0] && strcmp(arg, "0") && strcmp(arg, "1")
+		&& _stricmp(arg, "toggle") && _stricmp(arg, "status"))) {
+		ConEcho("[Skeeto] skeeto_freecam [0|1|toggle|status] — bind toggles flight");
+		return;
+	}
+	if (argc <= 1 || !_stricmp(arg, "toggle")) {
+		if (!g_optFreeCam) g_optFreeCam = true;
+		FreeCamToggleFlying();
+		g_settingsDirty = true;
+		g_settingsSaveAt = GetTickCount() + 400u;
+		MenuMarkDirty();
+	} else if (!strcmp(arg, "0") || !strcmp(arg, "1")) {
+		g_optFreeCam = arg[0] == '1';
+		if (!g_optFreeCam) FreeCamSetFlying(false);
+		g_settingsDirty = true;
+		g_settingsSaveAt = GetTickCount() + 400u;
+		MenuMarkDirty();
+	}
+	char line[224];
+	snprintf(line, sizeof(line),
+		"[Skeeto FreeCam] enabled=%d flying=%d state=%d speed=%d hide_vm=%d draw_local=%d view=%d vm=%d",
+		g_optFreeCam ? 1 : 0, g_freeCamFlying ? 1 : 0, (int)g_freeCamState,
+		skeeto_freecam::ClampSpeed(g_freeCamSpeed), g_optFreeCamHideVm ? 1 : 0,
+		g_freeCamDrawOpen ? 1 : 0, g_freeCamViewHooked ? 1 : 0, g_freeCamVmHooked ? 1 : 0);
+	ConEcho(line);
+}
+
 // Native shoulder aiming. One optional ClientMode VMT slot; no worker or new
 // render hook. Paint records the ACTUALLY DISPLAYED camera (including native
 // lag/collision), normal CreateMove traces that center ray afresh for every cmd.
 // Do not call CAMThink reentrantly or derive a fictitious camera from raw angles.
 enum class TpsAimState { Off, Waiting, Unsupported, Conflict, FirstPerson, Paused, Active, NoRay, Guarding, Recovering };
 static TpsAimState g_tpsAimState=TpsAimState::Off;
-static std::atomic<void*> g_tpsAimOriginal{nullptr};
-static void** g_tpsAimSlot=nullptr;
-static void* g_tpsAimMode=nullptr;
-static uint8_t* g_tpsAimClient=nullptr;
 using TpsAimThirdFn=bool(__thiscall*)(void*,int);
 static TpsAimThirdFn g_tpsAimThird=nullptr;
 static void** g_tpsAimInputCell=nullptr;
-static bool g_tpsAimResolved=false, g_tpsAimRejected=false, g_tpsAimHooked=false;
 static DWORD g_tpsAimTryAt=0;
 static DWORD g_tpsAimUserAt=0;
 static unsigned g_tpsAimTries=0;
@@ -59461,13 +60131,27 @@ static bool __fastcall Hooked_TpsAimCreateMove(void* self,void*,float sample,voi
 	Fn original=(Fn)g_tpsAimOriginal.load(std::memory_order_acquire);
 	if (!original) return true; // Unreachable after publication; never dereference an absent upstream.
 	const bool nativeReturn=original(self,sample,command);
-	if (self==g_tpsAimMode && g_optClientTpsAim) {
+	if (self==g_tpsAimMode && (g_optClientTpsAim || (g_optFreeCam && g_freeCamFlying))) {
 		g_tpsAimInputThread.store(GetCurrentThreadId(),std::memory_order_relaxed);
 		if (GetCurrentThreadId()!=g_paintTid) g_tpsAimForeignCalls.fetch_add(1,std::memory_order_relaxed);
 	}
 	// Never touch entities/cvars on an unexpected caller thread or secondary split-screen object.
 	if (GetCurrentThreadId()!=g_paintTid || self!=g_tpsAimMode) return nativeReturn;
-	if (!g_optClientTpsAim || !g_run.load(std::memory_order_relaxed) || !SkeetoFeaturesOn()) {
+	if (!g_run.load(std::memory_order_relaxed) || !SkeetoFeaturesOn()) {
+		TpsAimClear(); return nativeReturn;
+	}
+	// Free camera owns body lock + mouse steal while flying (including ExtraMouseSample).
+	if (g_optFreeCam && g_freeCamFlying) {
+		if (!FreeCamSceneReady()) {
+			FreeCamEndSession();
+			TpsAimClear();
+			return nativeReturn;
+		}
+		TpsAimClear();
+		FreeCamApplyCreateMove(command);
+		return nativeReturn;
+	}
+	if (!g_optClientTpsAim) {
 		TpsAimClear(); return nativeReturn;
 	}
 	if (!TpsAimReadable(command,0x58)) { TpsAimClear(); return nativeReturn; }
@@ -59586,7 +60270,8 @@ static void TpsAimPaintPump() {
 	if (GetCurrentThreadId()!=g_paintTid) return;
 	const bool report=g_tpsAimReportRequested.exchange(false,std::memory_order_acq_rel);
 	bool centerVisible=false;
-	if (!g_optClientTpsAim || !g_run.load(std::memory_order_relaxed) || !SkeetoFeaturesOn()) {
+	const bool moveWanted=ClientModeMoveWanted();
+	if (!moveWanted) {
 		if (g_tpsAimHooked || g_tpsAimPose.valid) TpsAimUnhook();
 		g_tpsAimEventUser.store(0,std::memory_order_release); g_tpsAimUserAt=0;
 		g_tpsAimState=TpsAimState::Off;
@@ -59594,7 +60279,7 @@ static void TpsAimPaintPump() {
 		if (g_tpsAimResetRequested.exchange(false,std::memory_order_acq_rel)) TpsAimClear();
 		const DWORD now=GetTickCount();
 		// Publish only an identity to Event; at most one bounded player-info query/s.
-		if (g_engine && EngInGame() && (!g_tpsAimUserAt || now-g_tpsAimUserAt>=1000u)) {
+		if (g_optClientTpsAim && g_engine && EngInGame() && (!g_tpsAimUserAt || now-g_tpsAimUserAt>=1000u)) {
 			g_tpsAimUserAt=now; PlayerInfo pi{};
 			if (EngPlayerInfo(EngLocal(),&pi)) g_tpsAimEventUser.store(pi.userid,std::memory_order_release);
 		}
@@ -59605,9 +60290,15 @@ static void TpsAimPaintPump() {
 		if (g_tpsAimHooked && *g_tpsAimSlot!=(void*)&Hooked_TpsAimCreateMove) {
 			g_tpsAimHooked=false; g_tpsAimRejected=true; TpsAimClear(); g_tpsAimState=TpsAimState::Conflict;
 		}
-		if (g_tpsAimHooked) {
+		if (!g_optClientTpsAim) {
+			TpsAimClear();
+			g_tpsAimState=TpsAimState::Off;
+		} else if (g_tpsAimHooked) {
 			g_tpsAimPose.valid=false;
-			if (!TpsAimSceneReady()) { TpsAimClear(); g_tpsAimState=TpsAimState::Paused; }
+			if (g_optFreeCam && g_freeCamFlying) {
+				TpsAimClear();
+				g_tpsAimState=TpsAimState::Paused;
+			} else if (!TpsAimSceneReady()) { TpsAimClear(); g_tpsAimState=TpsAimState::Paused; }
 			else if (!TpsAimNativeThirdPerson()) { TpsAimClear(); g_tpsAimState=TpsAimState::FirstPerson; }
 			else if (g_optClientTpsAimAac && g_tpsAimAac.interrupted
 				&& uint32_t(now-g_tpsAimAac.interruptedAt)<TpsAimAacState::kRecoveryMs)
@@ -68365,7 +69056,7 @@ static void MainUiHubServerSpawn(void* ev) {
 static void HandleEvent(void* ev) {
 	if (!ev || !g_ready.load() || !g_run.load(std::memory_order_relaxed)) return;
 	const char* n = EvName(ev);
-	if (n && (!strcmp(n,"round_start") || !strcmp(n,"round_end") || !strcmp(n,"game_disconnect")
+	if (n && (!strcmp(n,"round_start") || !strcmp(n,"round_end")
 		|| !strcmp(n,"game_newmap") || !strcmp(n,"map_transition") || !strcmp(n,"mission_lost")))
 		g_tpsAimResetRequested.store(true,std::memory_order_release); // No engine access on Event thread.
 	else if (n && (!strcmp(n,"player_spawn") || !strcmp(n,"player_death") || !strcmp(n,"player_team"))) {
@@ -68375,13 +69066,13 @@ static void HandleEvent(void* ev) {
 	if (n && !strcmp(n, "player_hurt_concise") && SkeetoFeaturesOn())
 		EnqueueDamageEvent(ev); // Event thread: bounded field copy; Paint resolves and dispatches consumers.
 
-	if(n&&(!strcmp(n,"round_start")||!strcmp(n,"game_disconnect")||!strcmp(n,"game_newmap")||!strcmp(n,"map_transition"))){g_lastMusicReset.store(true,std::memory_order_release);g_lastMusicRoundFailed.store(false,std::memory_order_release);}
+	if(n&&(!strcmp(n,"round_start")||!strcmp(n,"game_newmap")||!strcmp(n,"map_transition"))){g_lastMusicReset.store(true,std::memory_order_release);g_lastMusicRoundFailed.store(false,std::memory_order_release);}
 	else if(n&&!strcmp(n,"mission_lost")&&g_lastMusicEventWanted.load(std::memory_order_acquire))g_lastMusicRoundFailed.store(true,std::memory_order_release);
-	if (n && (!strcmp(n, "round_start") || !strcmp(n, "game_disconnect") || !strcmp(n, "game_newmap")))
+	if (n && (!strcmp(n, "round_start") || !strcmp(n, "game_newmap")))
 		SafeMusicResetChapter();
 	else if (n && !strcmp(n, "map_transition") && g_safeMusicHookWanted.load(std::memory_order_acquire))
 		g_safeMusicEventPending.store(true, std::memory_order_release);
-	if (n && (!strcmp(n, "game_disconnect") || !strcmp(n, "game_newmap")))
+	if (n && !strcmp(n, "game_newmap"))
 		g_campaignMapEpoch.fetch_add(1, std::memory_order_relaxed);
 	if (n && !strcmp(n, "round_start")) g_campaignRoundReset.store(true, std::memory_order_release);
 	if (n && !strcmp(n, "server_spawn")) {
@@ -68422,16 +69113,11 @@ static void HandleEvent(void* ev) {
 		MainUiHubCaptureLive(0);
 		if(g_mainUiBattleCaptured) g_mainUiBattlePending = false;
 	}
-	if(!strcmp(n,"mission_lost") || !strcmp(n,"game_disconnect"))
+	if (!strcmp(n, "mission_lost"))
 		g_mainUiBattlePending = false;
-	if (n && (!strcmp(n, "mission_lost") || !strcmp(n, "game_disconnect")
+	if (n && (!strcmp(n, "mission_lost")
 		|| !strcmp(n, "map_transition") || !strcmp(n, "round_end")))
 		LaserRoundPost(2);
-	if (!strcmp(n, "game_disconnect")) WorldTankPredictClear();
-	if(!strcmp(n,"game_disconnect"))g_escUiServerMax.store(0,std::memory_order_relaxed);
-	if(!strcmp(n,"game_disconnect")&&TryAcquireSRWLockExclusive(&g_mainUiServerLock)){
-		g_mainUiCurrentServer=MainUiServerRecord{};ReleaseSRWLockExclusive(&g_mainUiServerLock);
-	}
 	if (g_optChapStats) ChapStatsOnEvent(n, ev); // counters only; returns at once when off
 	// A pending old-chapter freeze must precede timing reset on round_start.
 	if(!strcmp(n,"round_start") || !strcmp(n,"game_newmap")) {
@@ -68790,7 +69476,6 @@ static void EnsureListeners() {
 	bool h = AddOne("witch_spawn");
 	bool i = AddOne("witch_killed");
 	bool j = AddOne("round_start");
-	AddOne("game_disconnect");
 	AddOne("game_newmap");
 	bool k = AddOne("round_end");
 	bool l = AddOne("bot_player_replace");

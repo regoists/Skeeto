@@ -48,6 +48,7 @@ TABLES = {
     "kSkeetoScriptMenuItems": "kMenuPageSkeetoScript",
     "kAlarmCarGlowMenuItems": "kMenuPageAlarmCarGlow",
     "kClientPerfMenuItems": "kMenuPageClientPerf",
+    "kFreeCamMenuItems": "kMenuPageFreeCam",
     "kParryFlashMenuItems": "kMenuPageParryFlash",
     "kSupplyScanMenuItems": "kMenuPageSupplyScan",
     "kSupplyScanHudMenuItems": "kMenuPageSupplyScanHud",

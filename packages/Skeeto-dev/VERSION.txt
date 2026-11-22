@@ -1,5 +1,5 @@
-Skeeto 2.2.21
-released=2026-11-21
-semver=2.2.21
+Skeeto 2.2.22
+released=2026-11-22
+semver=2.2.22
 module=steam-bootstrap-transactional-update
-note=MP4 main-menu backgrounds can advance sequentially or randomly after EOS (sequential by default); shove fatigue HUD picks coop vs versus max-penalty ConVars by mode
+note=Free Camera (client-only fly view, default off); idle bot names keep the human player label; freecam leave-to-menu crash fix
