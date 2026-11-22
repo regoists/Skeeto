@@ -22,12 +22,14 @@ Then extract all contents of the new package into the game's root directory. If 
 修复：
 - 队友血条/世界名在闲置 BOT 上更稳定显示「闲置：真人名」（含关联补种与接管清理）。
 - 自由镜头飞行中退回主菜单或换服时，可能因旧视角写入导致的闪退。
+- TAB / 章节统计的 Steam 头像：尺寸或 RGBA 尚未就绪时不再当硬失败长时间锁死；中途进服重试窗口加长；仅开 TAB 也会预取；结算冻结前冲刷上传，减少后进玩家一直显示「？」。
 	Skeeto Core:
 Added:
 - Combat visuals: Free Camera — fly the view while the body stays put (WASD / Space / Ctrl·Shift); off by default. Bind skeeto_freecam or toggle from the settings page.
 Fixed:
 - Team/world names more reliably show "Idle: player name" on idle bots (link reseeding and take-over cleanup).
 - Crash when leaving Free Camera flight to the main menu or joining another server (stale view write).
+- Steam avatars on TAB / chapter stats: size/RGBA-not-ready is no longer treated as a long hard failure; late joiners get a longer retry window; TAB-only also prefetches; settle freeze flushes uploads so mid-join players stop stuck on "?".
 
 ## 2.2.21（2026-11-21）
 	Skeeto核心：
