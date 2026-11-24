@@ -23,10 +23,10 @@ Then extract all contents of the new package into the game's root directory. If 
 修改：
 - Tank / Witch 金色奖杯改为与 Boss 伤害排行相同的 checkpoint 差值：挂在本次贡献最高的队友头上（不画在自己头上；若第一是自己则取下一名可见队友，否则回退击杀者）。
 修复：
-- 队友血条/世界名在闲置 BOT 上更稳定显示「闲置：真人名」（bot userid / 旁观字段校验，实体槽复用不再串名；闲置映射不依赖 HUD 开关）。
-- 多 Tank 时伤害数字归因：优先锁定中的血条 Tank，再按近期弹着点与瞄准锥选择，避免固定缓存/最低编号挂错目标。
+- 队友血条/世界名「闲置：真人名」：只按 bot userid 关联，实体槽复用不再串成别人的名字；人物 ID / 世界名开启时也会记录闲置映射。
+- 多 Tank 时伤害数字归因：优先当前血条锁定的 Tank，再按近期近距弹着与准星锥选择，避免挂到场上另一只。
 - 自由镜头飞行中退回主菜单或换服时，可能因旧视角写入导致的闪退。
-- TAB / 章节统计 Steam 头像对齐 L4N（left4neko）：走引擎 GetSteamAPIContext，RequestUserInformation 仍在拉取则下帧再试，再 GetMediumFriendAvatar 取 64 图。修后进玩家一直「？」（此前 flat SteamAPI / Large 路径与 L4N 不一致）。按 TAB 不打 Steam；Paint 每拍最多 1 拉 1 传。
+- TAB / 章节统计 Steam 头像对齐 L4N（left4neko）：引擎 GetSteamAPIContext → RequestUserInformation → GetMediumFriendAvatar；修后进玩家一直「？」。按 TAB 不打 Steam；Paint 每 500ms 最多 1 拉 1 传。
 	Skeeto Core:
 Added:
 - Combat visuals: Free Camera — fly the view while the body stays put (WASD / Space / Ctrl·Shift); off by default. Bind skeeto_freecam or toggle from the settings page.
@@ -34,10 +34,10 @@ Added:
 Changed:
 - Tank / Witch gold trophies now use the same checkpoint damage deltas as the Boss damage board: shown above the highest contributor this fight (never above you; if you are first, the next visible teammate; else the killer).
 Fixed:
-- Team/world idle names more reliable on idle bots (bot userid / spectator-field checks; entity-slot reuse no longer mixes names; idle mapping no longer depends on the HUD switch).
-- Multi-Tank damage-number attribution: prefer the locked health-bar Tank, then recent impact / aim cone, instead of a fixed cache or lowest index.
+- Team/world "Idle: name" mapping keys only by bot userid so recycled entity slots no longer show another player's name; idle links also seed when native/world name HUDs are on.
+- Multi-Tank damage-number attribution: prefer the locked health-bar Tank, then a nearby recent impact / aim cone, instead of another alive Tank.
 - Crash when leaving Free Camera flight to the main menu or joining another server (stale view write).
-- Steam avatars on TAB / chapter stats now follow L4N (left4neko): engine GetSteamAPIContext, retry while RequestUserInformation is pending, then GetMediumFriendAvatar (64px). Fixes late joiners stuck on "?" (flat SteamAPI / Large path did not match L4N). TAB key does not call Steam; Paint does at most one fetch and one upload per tick.
+- Steam avatars on TAB / chapter stats follow L4N (left4neko): engine GetSteamAPIContext → RequestUserInformation → GetMediumFriendAvatar; fixes late joiners stuck on "?". TAB key does not call Steam; Paint does at most one fetch and one upload per 500 ms.
 
 ## 2.2.21（2026-11-21）
 	Skeeto核心：

@@ -17957,7 +17957,7 @@ static void __fastcall Hooked_EnginePaint(void* ecx, void* edx, int mode) {
 	IdlePersonRestorePump();
 	TpsAimPaintPump(); // Owns its optional command hook; disabled path performs no engine work.
 	FreeCamPaintPump(); // Wanted() owns enable; off path is teardown-only.
-	FpbPaintPump(); // Runtime gated by kAllowFpbRuntime; off path is teardown-only.
+	FpbPaintPump(); // Wanted() owns enable; off path is teardown-only.
 	// Idle weapon-slot restore: no HUD, no scan. Must run before the in-game
 	// panel early-out so close/leave-game can drop the snapshot. Closed path
 	// is a few bool/atomic compares.
@@ -59956,9 +59956,6 @@ static bool FreeCamReadable(const void* p, size_t bytes) {
 static bool TpsAimResolve(); // shared ClientMode CreateMove resolve (defined below)
 static void FreeCamSetDrawLocal(bool enable);
 
-// FPB stayed runtime-gated after the enter-server AV bisect; FreeCam is back on.
-static constexpr bool kAllowFpbRuntime = false;
-
 static bool FreeCamWanted() {
 	return g_optFreeCam && g_run.load(std::memory_order_relaxed) && SkeetoFeaturesOn();
 }
@@ -60158,7 +60155,7 @@ static void __fastcall Hooked_FpbStudio(void* self, void*, void* results, const 
 	float (*bones)[3][4], float* flex, float* delayed, const float* origin, int flags);
 
 static bool FpbWanted() {
-	return kAllowFpbRuntime && g_fpb.enabled && g_run.load(std::memory_order_relaxed) && SkeetoFeaturesOn();
+	return g_fpb.enabled && g_run.load(std::memory_order_relaxed) && SkeetoFeaturesOn();
 }
 static bool FpbShoulderThirdPerson() {
 	return CvarGetIntRange("c_thirdpersonshoulder", 0, 1, 0) != 0;
@@ -67168,8 +67165,9 @@ static bool CheckpointTankReadPos(int id, void** outEnt, float* outPos) {
 	return true;
 }
 
-// Checkpoint totals do not name which Tank was hit. With several alive, pick by
-// locked HP bar, then nearest recent impact, then aim cone — never "first index".
+// Checkpoint totals do not name which Tank was hit. With several alive: HP-bar
+// lock → recent nearby impact → aim cone (min score) → prior cache. Never the
+// lowest entity index just because it appears first.
 static int CheckpointFindAliveTank(void** outEnt, float* outPos) {
 	if (outEnt) *outEnt = nullptr;
 	int ids[8]{};
@@ -67187,20 +67185,26 @@ static int CheckpointFindAliveTank(void** outEnt, float* outPos) {
 	int pick = 0;
 	if (n > 1) {
 		bool chose = false;
-		if (g_hpLocalSiEnt > 0) {
+		auto tryId = [&](int want) {
+			if (want <= 0 || chose) return;
 			for (int i = 0; i < n; ++i) {
-				if (ids[i] != g_hpLocalSiEnt) continue;
+				if (ids[i] != want) continue;
 				pick = i;
 				chose = true;
-				break;
+				return;
 			}
-		}
+		};
+		// Visible SI HP bar first (what the player is watching), then combat lock.
+		if (g_hpTrackEnt > 0 && g_hpTrackZc == 8 && g_hpTrackUntil
+			&& (LONG)(GetTickCount() - g_hpTrackUntil) < 0)
+			tryId(g_hpTrackEnt);
+		tryId(g_hpLocalSiEnt);
 		if (!chose && g_haveImpactPos) {
 			const DWORD gunAt = g_lastLocalGunImpactAt.load(std::memory_order_relaxed);
 			const DWORD nowImp = GetTickCount();
-			// Stale bullet_impact must not outrank aim cone across multi-Tank fights.
-			if (gunAt && nowImp - gunAt < 750u) {
-				float best = 1e30f;
+			if (gunAt && nowImp - gunAt < 500u) {
+				constexpr float kMaxDist2 = 180.f * 180.f;
+				float best = kMaxDist2;
 				for (int i = 0; i < n; ++i) {
 					const float dx = poss[i][0] - g_lastImpactPos[0];
 					const float dy = poss[i][1] - g_lastImpactPos[1];
@@ -67213,7 +67217,8 @@ static int CheckpointFindAliveTank(void** outEnt, float* outPos) {
 		if (!chose) {
 			float eye[3]{};
 			float forward[3]{};
-			float bestScore = -1e30f;
+			// ~35° cone — do not force-pick a Tank behind / beside the crosshair.
+			float bestScore = 0.82f;
 			if (LocalEyePos(eye)) {
 				float angles[3]{};
 				EngGetViewAngles(angles);
@@ -67223,24 +67228,19 @@ static int CheckpointFindAliveTank(void** outEnt, float* outPos) {
 					const float dy = poss[i][1] - eye[1];
 					const float dz = poss[i][2] + 40.f - eye[2];
 					const float len = sqrtf(dx * dx + dy * dy + dz * dz);
-					float score = 0.f;
-					if (len > 1.f)
-						score = (dx * forward[0] + dy * forward[1] + dz * forward[2]) / len;
-					if (!chose || score > bestScore) {
+					if (len <= 1.f) continue;
+					const float score = (dx * forward[0] + dy * forward[1] + dz * forward[2]) / len;
+					if (score > bestScore) {
 						bestScore = score;
 						pick = i;
 						chose = true;
 					}
 				}
 			}
-			if (!chose) {
-				for (int i = 0; i < n; ++i) {
-					if (ids[i] != g_ckptTankCachedId) continue;
-					pick = i;
-					break;
-				}
-			}
 		}
+		if (!chose)
+			tryId(g_ckptTankCachedId);
+		if (!chose) pick = 0;
 	}
 	g_ckptTankCachedId = ids[pick];
 	if (outEnt) *outEnt = ents[pick];

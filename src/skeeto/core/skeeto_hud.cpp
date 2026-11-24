@@ -1212,25 +1212,27 @@ void TeamHudNameCachePut(int ent, int userid, const wchar_t* name, bool fromPlay
 }
 
 const wchar_t* TeamHudIdleNameForBot(int ent, int userid) {
+	// Match by bot userid only. Entity-slot-only hits caused「闲置：我的名字」when
+	// a recycled pawn index still pointed at a stale local-player link.
+	if (userid <= 0) return nullptr;
 	const int liveHu = ent > 0 ? SkeetoIdleHumanUserIdForBot(ent) : 0;
 	for (int i = 0; i < kTeamHudMax; ++i) {
 		TeamHudIdleLink& link = g_teamHudIdleLinks[i];
-		const bool uidMatch = userid > 0 && link.botUserId == userid;
-		const bool entMatch = ent > 0 && link.botEnt == ent;
-		if (!uidMatch && !entMatch) continue;
-		// Entity slot reuse: same botEnt, different bot userid — drop stale link.
-		if (entMatch && userid > 0 && link.botUserId > 0 && link.botUserId != userid) {
-			link = {};
-			continue;
-		}
-		// Netvar human disagrees with the stored idle owner.
+		if (link.botUserId != userid) continue;
+		// Netvar human disagrees with the stored idle owner — drop, let seed rebuild.
 		if (liveHu > 0 && link.playerUserId > 0 && liveHu != link.playerUserId) {
 			link = {};
 			continue;
 		}
 		if (ent > 0) link.botEnt = ent;
-		if (userid > 0) link.botUserId = userid;
-		if (liveHu > 0) link.playerUserId = liveHu;
+		if (liveHu > 0 && link.playerUserId != liveHu) {
+			link.playerUserId = liveHu;
+			link.playerName[0] = 0; // never keep the previous human's display name
+		}
+		if (link.playerUserId <= 0) {
+			link = {};
+			continue;
+		}
 		int humanEnt = EngPlayerForUserID(link.playerUserId);
 		PlayerInfo pi{};
 		if (humanEnt > 0 && EngPlayerInfo(humanEnt, &pi)
@@ -1240,7 +1242,7 @@ const wchar_t* TeamHudIdleNameForBot(int ent, int userid) {
 			link.playerName[23] = 0;
 			return link.playerName;
 		}
-		// Keep the captured human name while the idle body is still linked.
+		// Cached name only while it still belongs to the same human userid.
 		if (link.playerName[0]) return link.playerName;
 		if (!link.born || GetTickCount() - link.born > 1500u)
 			link = {};
@@ -1261,13 +1263,14 @@ int TeamHudIdleBodyForEnt(int ent) {
 
 static void TeamHudSeedIdleLink(int playerUserId, int botUserId) {
 	if (playerUserId <= 0 || botUserId <= 0) return;
+	// Never attribute a bot to the wrong human via a recycled pawn index.
+	if (playerUserId == botUserId) return;
 	const int playerEnt = EngPlayerForUserID(playerUserId);
 	const int botEnt = EngPlayerForUserID(botUserId);
 	int slot = -1;
 	for (int i = 0; i < kTeamHudMax; ++i) {
 		if (g_teamHudIdleLinks[i].playerUserId == playerUserId
-			|| g_teamHudIdleLinks[i].botUserId == botUserId
-			|| (botEnt > 0 && g_teamHudIdleLinks[i].botEnt == botEnt)) {
+			|| g_teamHudIdleLinks[i].botUserId == botUserId) {
 			slot = i;
 			break;
 		}
@@ -1283,7 +1286,7 @@ static void TeamHudSeedIdleLink(int playerUserId, int botUserId) {
 	link.botEnt = botEnt;
 	link.born = GetTickCount();
 	PlayerInfo pi{};
-	// Require the resolved pawn to still be that human — never copy a BOT/local body name.
+	// Require the resolved pawn to still be that human — never copy a BOT body name.
 	if (playerEnt > 0 && EngPlayerInfo(playerEnt, &pi)
 		&& pi.userid == playerUserId && !PlayerInfoIsBot(pi) && pi.name[0]) {
 		MultiByteToWideChar(CP_UTF8, 0, pi.name, -1, link.playerName, 24);
@@ -1296,8 +1299,8 @@ static void TeamHudSeedIdleLink(int playerUserId, int botUserId) {
 }
 
 void TeamHudOnBotSwap(const char* eventName, int playerUserId, int botUserId) {
-	// Name HUDs share ApplyName; keep links when either consumer is wanted.
-	if (!g_optTeamHud && !TeamWorldNamesWanted()) return;
+	// Name HUDs share ApplyName; keep links when any name consumer is wanted.
+	if (!g_optTeamHud && !TeamWorldNamesWanted() && !NativeWorldNamesWanted()) return;
 	if (!eventName || playerUserId <= 0 || botUserId <= 0) return;
 	const bool takeover = eventName[0] == 'b';
 	if (takeover) {
