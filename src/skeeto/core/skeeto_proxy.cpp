@@ -55,6 +55,10 @@
 #include "skeeto_ui_text.h"
 #include "skeeto_tps_aim_aac.h"
 #include "skeeto_freecam.h"
+#include "skeeto_local_draw_gate.h"
+#include "skeeto_fpb.h"
+#include "skeeto_fpb_dynamic.h"
+#include "skeeto_fpb_viewcompat.h"
 #include "skeeto_mainui_services.h"
 #include "skeeto_escui_io.h"
 #include "skeeto_bootstrap_runtime.h"
@@ -1466,7 +1470,11 @@ static constexpr int kMenuPageClearDecals = 149; // 自动清理弹孔血迹设�
 static constexpr int kMenuPageWModelScale = 150; // W模缩放设置（客户端便利子页）
 static constexpr int kMenuPageWorldTankPredict = 151; // Tank 行为预测（世界 HUD）
 static constexpr int kMenuPageFreeCam = 152; // 自由镜头（战斗增强与视听优化）
-static constexpr int kMenuPageIdNext = 153;
+static constexpr int kMenuPageFpb = 153; // 更好的第一人称身体（SkeetoScript）
+static constexpr int kMenuPageFpbDynamic = 154; // FPB 动态锚点 / MOD 校准
+static constexpr int kMenuPageFpbPos = 155; // FPB 模型位置
+static constexpr int kMenuPageFpbDiag = 156; // FPB 运行诊断
+static constexpr int kMenuPageIdNext = 157;
 static int MenuDiscoveryPageCount(int page);
 static constexpr int kMenuPageCrashGuard = 113;
 static constexpr int kMenuPageCacheOffload = 114;
@@ -1636,6 +1644,10 @@ static constexpr int kMenuPageIdAudit[] = {
 	kMenuPageClientPerf,
 	kMenuPageWorldTankPredict,
 	kMenuPageFreeCam,
+	kMenuPageFpb,
+	kMenuPageFpbDynamic,
+	kMenuPageFpbPos,
+	kMenuPageFpbDiag,
 };
 static constexpr bool MenuPageIdsUnique() {
 	for (int i = 0; i < (int)(sizeof(kMenuPageIdAudit) / sizeof(kMenuPageIdAudit[0])); ++i)
@@ -2656,6 +2668,25 @@ static bool g_optClientTpsAimAac = false; // optional parallax transition guard
 static bool g_optFreeCam = false; // free local camera; default off
 static bool g_optFreeCamHideVm = true; // hide FP arms/weapon while flying
 static int g_freeCamSpeed = 1000; // uu/s, clamped 30..2500
+static skeeto_fpb::Settings g_fpb{}; // Lux Advanced-style first-person body; default off
+static skeeto_fpb::ProfileStore g_fpbProfiles{}; // left4dead2/skeeto/fpb/profiles.ini — not skeeto_setting.ini
+static wchar_t g_fpbPath[SKT_PATH_CAP]{};
+static skeeto_fpb::StudioInfo g_fpbStudio{};
+static skeeto_fpb::dynamic::Track g_fpbTrack{};
+static skeeto_fpb::viewcompat::CameraLatch g_fpbViewLatch{};
+static skeeto_fpb::freecamerabody::Transition g_fpbCamTransition{};
+static skeeto_fpb::viewcompat::Mode g_fpbViewMode = skeeto_fpb::viewcompat::Mode::Unknown;
+static bool g_fpbWorldBody = false;
+static bool g_fpbGateOpen = false;
+static float g_fpbViewHoriz = -1.f, g_fpbViewEyeZ = -1.f;
+static int g_fpbShoulderCached = -1;
+static char g_fpbStatus[128] = "关闭：原生可见性保持不变";
+static uint32_t g_fpbCamEpoch = 1;
+static void FpbPaintPump();
+static void FpbEndSession();
+static void FpbResetTrack();
+static bool FpbLoadProfiles();
+static bool FpbSaveProfiles();
 static std::atomic<bool> g_tpsAimResetRequested{false};
 static std::atomic<bool> g_tpsAimReportRequested{false};
 static std::atomic<int> g_tpsAimEventUser{0};
@@ -4971,6 +5002,19 @@ void SaveSettings() {
 	fprintf(f, "client_freecam=%d\n", g_optFreeCam ? 1 : 0);
 	fprintf(f, "client_freecam_hide_vm=%d\n", g_optFreeCamHideVm ? 1 : 0);
 	fprintf(f, "client_freecam_speed=%d\n", skeeto_freecam::ClampSpeed(g_freeCamSpeed));
+	skeeto_fpb::Normalize(g_fpb);
+	fprintf(f, "script_fpb=%d\n", g_fpb.enabled ? 1 : 0);
+	fprintf(f, "script_fpb_hide_head=%d\n", g_fpb.hideHead ? 1 : 0);
+	fprintf(f, "script_fpb_hide_arms=%d\n", g_fpb.hideArms ? 1 : 0);
+	fprintf(f, "script_fpb_tp_compat=%d\n", g_fpb.thirdPersonCompat ? 1 : 0);
+	fprintf(f, "script_fpb_dynamic=%d\n", g_fpb.dynamicAnchor ? 1 : 0);
+	fprintf(f, "script_fpb_follow_yaw=%d\n", g_fpb.followCameraYaw ? 1 : 0);
+	fprintf(f, "script_fpb_forward=%.3f\n", g_fpb.forward);
+	fprintf(f, "script_fpb_right=%.3f\n", g_fpb.right);
+	fprintf(f, "script_fpb_up=%.3f\n", g_fpb.up);
+	fprintf(f, "script_fpb_step=%.3f\n", g_fpb.step);
+	fprintf(f, "script_fpb_eye_fallback=%.3f\n", g_fpb.fallbackEyeHeight);
+	fprintf(f, "script_fpb_yaw_trim=%.3f\n", g_fpb.yawTrim);
 	fprintf(f, "client_hold_semiauto_rate=%d\n", g_holdSemiRate);
 	fprintf(f, "shotgun_autoreload_pump=%d\n", g_optShotgunReloadPump ? 1 : 0);
 	fprintf(f, "shotgun_autoreload_auto=%d\n", g_optShotgunReloadAuto ? 1 : 0);
@@ -6170,6 +6214,36 @@ static bool LoadSettingsClientUxLine(const char* line, bool* hadDirectorHud) {
 		g_freeCamSpeed = skeeto_freecam::ClampSpeed(v);
 		return true;
 	}
+	if (sscanf(line, "script_fpb=%d", &v) == 1) { g_fpb.enabled = v != 0; return true; }
+	if (sscanf(line, "script_fpb_hide_head=%d", &v) == 1) { g_fpb.hideHead = v != 0; return true; }
+	if (sscanf(line, "script_fpb_hide_arms=%d", &v) == 1) { g_fpb.hideArms = v != 0; return true; }
+	if (sscanf(line, "script_fpb_tp_compat=%d", &v) == 1) { g_fpb.thirdPersonCompat = v != 0; return true; }
+	if (sscanf(line, "script_fpb_dynamic=%d", &v) == 1) { g_fpb.dynamicAnchor = v != 0; return true; }
+	if (sscanf(line, "script_fpb_follow_yaw=%d", &v) == 1) { g_fpb.followCameraYaw = v != 0; return true; }
+	{
+		float fv = 0.f;
+		if (sscanf(line, "script_fpb_forward=%f", &fv) == 1) { g_fpb.forward = skeeto_fpb::ClampAxis(fv); return true; }
+		if (sscanf(line, "script_fpb_right=%f", &fv) == 1) { g_fpb.right = skeeto_fpb::ClampAxis(fv); return true; }
+		if (sscanf(line, "script_fpb_up=%f", &fv) == 1) { g_fpb.up = skeeto_fpb::ClampAxis(fv); return true; }
+		if (sscanf(line, "script_fpb_step=%f", &fv) == 1) {
+			g_fpb.step = fv;
+			skeeto_fpb::Normalize(g_fpb);
+			return true;
+		}
+		if (sscanf(line, "script_fpb_eye_fallback=%f", &fv) == 1) {
+			g_fpb.fallbackEyeHeight = fv;
+			skeeto_fpb::Normalize(g_fpb);
+			return true;
+		}
+		if (sscanf(line, "script_fpb_yaw_trim=%f", &fv) == 1) {
+			g_fpb.yawTrim = fv;
+			skeeto_fpb::Normalize(g_fpb);
+			return true;
+		}
+		// Legacy keys from the brief ini experiment; ignore so old lines do not stick.
+		if (!std::strncmp(line, "script_fpb_profile_", 18) || !std::strncmp(line, "script_fpb_profile_count=", 25))
+			return true;
+	}
 	if (sscanf(line, "crashguard_datacache_mb=%d", &v) == 1) {
 		g_optCrashGuardCacheMb = CrashGuardNormalize(v, true); return true;
 	}
@@ -7276,6 +7350,7 @@ static void LoadSettings() {
 	g_optFreeCam = false;
 	g_optFreeCamHideVm = true;
 	g_freeCamSpeed = 1000;
+	g_fpb = {};
 	g_holdSemiRate = kHoldSemiRateDefault;
 	g_optShotgunReloadPump = false;
 	g_optShotgunReloadAuto = false;
@@ -8897,6 +8972,7 @@ static void TickPurePolicy(bool connected, bool ingame) {
 			}
 			IdleSwapHudClearQuiet();
 			FreeCamEndSession();
+			FpbEndSession();
 			// L4D2 无 game_disconnect 事件；退服清理只靠已验证的 !connected 边沿。
 			g_tpsAimResetRequested.store(true, std::memory_order_release);
 			g_lastMusicReset.store(true, std::memory_order_release);
@@ -16340,9 +16416,11 @@ static void HudMapEnterStableArm(const char* why) {
 	g_levelInitResetRequestedAt.store(GetTickCount(), std::memory_order_relaxed);
 	g_mapEnterGameThreadResetPending.store(true, std::memory_order_release);
 	g_mapEnterCvarReapplyPending.store(true, std::memory_order_release);
-	// Drop free-cam flight before the first new-map view; Paint may lag one frame.
-	if (GetCurrentThreadId() == g_paintTid || !g_paintTid)
+	// Drop free-cam flight / FPB decorate before the first new-map view; Paint may lag one frame.
+	if (GetCurrentThreadId() == g_paintTid || !g_paintTid) {
 		FreeCamEndSession();
+		FpbEndSession();
+	}
 	HudPostMissionQuietClear(why);
 }
 
@@ -17878,7 +17956,8 @@ static void __fastcall Hooked_EnginePaint(void* ecx, void* edx, int mode) {
 	IdleViewRestorePump();
 	IdlePersonRestorePump();
 	TpsAimPaintPump(); // Owns its optional command hook; disabled path performs no engine work.
-	FreeCamPaintPump(); // Shared CreateMove with TPS; own OverrideView / ViewModel hooks.
+	FreeCamPaintPump(); // Wanted() owns enable; off path is teardown-only.
+	FpbPaintPump(); // Runtime gated by kAllowFpbRuntime; off path is teardown-only.
 	// Idle weapon-slot restore: no HUD, no scan. Must run before the in-game
 	// panel early-out so close/leave-game can drop the snapshot. Closed path
 	// is a few bool/atomic compares.
@@ -27252,6 +27331,52 @@ static const FreeCamMenuItem* FreeCamMenuItemAt(int digit) {
 	return digit >= 1 && digit <= (int)_countof(kFreeCamMenuItems) ? &kFreeCamMenuItems[digit - 1] : nullptr;
 }
 
+enum class FpbMenuAction : unsigned char {
+	Toggle, HideHead, HideArms, TpCompat, OpenDynamic, OpenPos, OpenDiag,
+	DynamicToggle, FollowYaw, FallbackEye, YawTrim, BindModel, EraseModel,
+	Forward, Right, Up, Step, ResetPos
+};
+struct FpbMenuItem { UiId id; const wchar_t* text; FpbMenuAction action; };
+static constexpr FpbMenuItem kFpbMenuItems[] = {
+	{UiId::FpbToggle, L"[1] 更好的第一人称身体 %s", FpbMenuAction::Toggle},
+	{UiId::FpbHideHead, L"[2] 隐藏头部骨骼 %s", FpbMenuAction::HideHead},
+	{UiId::FpbHideArms, L"[3] 隐藏手臂骨骼 %s", FpbMenuAction::HideArms},
+	{UiId::FpbTpCompat, L"[4] 第三人称视角兼容 %s", FpbMenuAction::TpCompat},
+	{UiId::FpbOpenDynamic, L"[5] 动态身体定位 / 校准 【进入设置】", FpbMenuAction::OpenDynamic},
+	{UiId::FpbOpenPos, L"[6] 模型位置 / 前后/左右/高度 【进入设置】", FpbMenuAction::OpenPos},
+	{UiId::FpbOpenDiag, L"[7] 运行状态与诊断 【进入设置】", FpbMenuAction::OpenDiag},
+};
+static constexpr FpbMenuItem kFpbDynamicMenuItems[] = {
+	{UiId::FpbDynamic, L"[1] 动态身体定位 %s", FpbMenuAction::DynamicToggle},
+	{UiId::FpbFollowYaw, L"[2] 胸肩朝向跟随视角 %s", FpbMenuAction::FollowYaw},
+	{UiId::FpbFallbackEye, L"[3] 眼位失效回退高度 【%.1f】  - / +", FpbMenuAction::FallbackEye},
+	{UiId::FpbYawTrim, L"[4] 手动朝向补偿 【%.1f】度  - / +", FpbMenuAction::YawTrim},
+	{UiId::FpbBindModel, L"[5] 绑定当前 XYZ/朝向到本 MOD", FpbMenuAction::BindModel},
+	{UiId::FpbEraseModel, L"[6] 重置当前 MOD 独立校准", FpbMenuAction::EraseModel},
+};
+static constexpr FpbMenuItem kFpbPosMenuItems[] = {
+	{UiId::FpbForward, L"[1] 前后偏移 【%.1f】  - / +", FpbMenuAction::Forward},
+	{UiId::FpbRight, L"[2] 左右偏移 【%.1f】  - / +", FpbMenuAction::Right},
+	{UiId::FpbUp, L"[3] 高度偏移 【%.1f】  - / +", FpbMenuAction::Up},
+	{UiId::FpbStep, L"[4] 调节步长 【%.1f】", FpbMenuAction::Step},
+	{UiId::FpbResetPos, L"[5] 重置模型位置", FpbMenuAction::ResetPos},
+};
+static_assert(_countof(kFpbMenuItems) <= kMenuItemsPerPage, "fpb root settings stay on one page");
+static_assert(_countof(kFpbDynamicMenuItems) <= kMenuItemsPerPage, "fpb dynamic page");
+static_assert(_countof(kFpbPosMenuItems) <= kMenuItemsPerPage, "fpb position page");
+static const FpbMenuItem* FpbMenuItemAt(int page, int digit) {
+	const FpbMenuItem* table = nullptr;
+	int n = 0;
+	if (page == kMenuPageFpb) { table = kFpbMenuItems; n = (int)_countof(kFpbMenuItems); }
+	else if (page == kMenuPageFpbDynamic) { table = kFpbDynamicMenuItems; n = (int)_countof(kFpbDynamicMenuItems); }
+	else if (page == kMenuPageFpbPos) { table = kFpbPosMenuItems; n = (int)_countof(kFpbPosMenuItems); }
+	else return nullptr;
+	return digit >= 1 && digit <= n ? &table[digit - 1] : nullptr;
+}
+static int g_fpbAdjustSel = 0; // 0 forward, 1 right, 2 up
+static int g_fpbDynAdjustSel = 0; // 0 fallback eye, 1 yaw trim
+static wchar_t g_fpbMenuNote[160]{};
+
 enum class ElimHudMenuAction : unsigned char {
 	Toggle, CycleMode, AdjustScale, CycleLang, CyclePreset, OpenLineSettings, ResetCounts, CycleNumStyle, CycleTankMode,
 };
@@ -27920,8 +28045,8 @@ static constexpr WorldHudMenuItem kWorldHudMenu[] = {
 	{UiId::Text_691e55bd, L"伤害数字", UiId::Text_1ebb416d, L"    只对特感/Tank，在模型外侧显示", WorldHudMenuAction::OpenPage, kMenuPageClientDmgNum},
 	{UiId::Text_708a91b2, L"队友头顶血条", UiId::Text_6dbf7f91, L"    常驻显示远端队友当前可用血量，不显示最大值；写实模式禁用", WorldHudMenuAction::ToggleTeamHud, -1},
 	{UiId::Text_b3384f73, L"特感硬直 / 踉跄提示", UiId::Text_fae72e36, L"    进入子菜单，可选择黄色竖条或倒三角沙漏倒计时", WorldHudMenuAction::OpenPage, kMenuPageStaggerHud},
-	{UiId::Text_97dbf93d, L"Witch 击杀提示", UiId::Text_2bac349b, L"    队友击杀 Witch 时，在击杀者头顶显示约 5 秒金色奖杯", WorldHudMenuAction::ToggleWitchKill, -1},
-	{UiId::Text_11de06e3, L"Tank 击杀提示", UiId::Text_ded4bbd3, L"    队友击杀 Tank 时，在击杀者头顶显示约 5 秒金色奖杯", WorldHudMenuAction::ToggleTankKill, -1},
+	{UiId::Text_97dbf93d, L"Witch 击杀提示", UiId::Text_2bac349b, L"    Witch 死亡后，在本次伤害贡献最高的队友头顶显示约 5 秒金色奖杯（不画在自己头上）", WorldHudMenuAction::ToggleWitchKill, -1},
+	{UiId::Text_11de06e3, L"Tank 击杀提示", UiId::Text_ded4bbd3, L"    Tank 死亡后，在本次伤害贡献最高的队友头顶显示约 5 秒金色奖杯（不画在自己头上）", WorldHudMenuAction::ToggleTankKill, -1},
 	{UiId::Text_538a25d3, L"关键保护 / 解控", UiId::Text_be4836aa, L"    队友救起自己或解除自己被控时，在施救者头顶显示约 2 秒盾牌十字", WorldHudMenuAction::ToggleRescue, -1},
 	{UiId::Text_664cfd96, L"刀爆空中 Hunter / Jockey", UiId::Text_911c7619, L"    复用 Melee Skeet 判定，在死亡位置显示约 2 秒冰蓝刀徽", WorldHudMenuAction::ToggleMeleeSkeet, -1},
 	{UiId::Text_6290192b, L"刀杀冲锋 Charger（Level）", UiId::Text_fa517d34, L"    复用特殊击杀 Level 判定，在死亡位置显示约 2 秒橙色刀箭", WorldHudMenuAction::ToggleLevel, -1},
@@ -28137,6 +28262,7 @@ enum class SkeetoScriptMenuAction : unsigned char {
 	OpenSupplyScan,
 	OpenAlarmCarGlow,
 	OpenClientPerf,
+	OpenFpb,
 };
 struct SkeetoScriptMenuItem {
 	UiId labelId;
@@ -28170,6 +28296,7 @@ static constexpr SkeetoScriptMenuItem kSkeetoScriptMenuItems[] = {
 	{UiId::SupplyScanEntry, L"[5] 物资扫描，即Survivor Sense 【进入设置】", SkeetoScriptMenuAction::OpenSupplyScan, kMenuPageSupplyScan},
 	{UiId::AlarmCarGlowEntry, L"[6] 警报车武装描边，即Alarm Car Glow 【进入设置】", SkeetoScriptMenuAction::OpenAlarmCarGlow, kMenuPageAlarmCarGlow},
 	{UiId::ClientPerfEntry, L"[7] 客户端性能预设，即Client Perf Presets 【进入设置】", SkeetoScriptMenuAction::OpenClientPerf, kMenuPageClientPerf},
+	{UiId::FpbEntry, L"[8] 更好的第一人称身体，即Lux's Survivor Legs script(Advanced) 【进入设置】", SkeetoScriptMenuAction::OpenFpb, kMenuPageFpb},
 };
 static constexpr int SkeetoScriptMenuItemCount() {
 	return static_cast<int>(sizeof(kSkeetoScriptMenuItems) / sizeof(kSkeetoScriptMenuItems[0]));
@@ -28193,10 +28320,11 @@ static constexpr bool SkeetoScriptMenuItemsValid() {
 			|| item.action == SkeetoScriptMenuAction::OpenParry
 			|| item.action == SkeetoScriptMenuAction::OpenSupplyScan
 			|| item.action == SkeetoScriptMenuAction::OpenAlarmCarGlow
-			|| item.action == SkeetoScriptMenuAction::OpenClientPerf;
+			|| item.action == SkeetoScriptMenuAction::OpenClientPerf
+			|| item.action == SkeetoScriptMenuAction::OpenFpb;
 		if (opensPage != (item.targetPage >= 0)) return false;
 	}
-	return SkeetoScriptMenuItemCount() == 25 && SkeetoScriptMenuPageCount() == 3
+	return SkeetoScriptMenuItemCount() == 26 && SkeetoScriptMenuPageCount() == 3
 		&& kSkeetoScriptMenuItems[0].action == SkeetoScriptMenuAction::ToggleLowHealthCue
 		&& kSkeetoScriptMenuItems[1].action == SkeetoScriptMenuAction::ToggleHealFade
 		&& kSkeetoScriptMenuItems[2].action == SkeetoScriptMenuAction::ToggleEmptyMagSound
@@ -28218,7 +28346,8 @@ static constexpr bool SkeetoScriptMenuItemsValid() {
 		&& kSkeetoScriptMenuItems[21].action == SkeetoScriptMenuAction::OpenParry
 		&& kSkeetoScriptMenuItems[22].action == SkeetoScriptMenuAction::OpenSupplyScan
 		&& kSkeetoScriptMenuItems[23].action == SkeetoScriptMenuAction::OpenAlarmCarGlow
-		&& kSkeetoScriptMenuItems[24].action == SkeetoScriptMenuAction::OpenClientPerf;
+		&& kSkeetoScriptMenuItems[24].action == SkeetoScriptMenuAction::OpenClientPerf
+		&& kSkeetoScriptMenuItems[25].action == SkeetoScriptMenuAction::OpenFpb;
 }
 static_assert(SkeetoScriptMenuItemsValid(), "SkeetoScript menu order, targets, or pagination need review");
 static const SkeetoScriptMenuItem* SkeetoScriptMenuItemAt(int subpage, int digit) {
@@ -29151,7 +29280,10 @@ static int MenuPageSubCount(int page) {
 	case kMenuPageAlarmCarGlow: return MenuPageCountForItems(AlarmCarGlowMenuCount());
 	case kMenuPageClientPerf: return MenuPageCountForItems(ClientPerfMenuCount());
 	case kMenuPageFreeCam: return MenuPageCountForItems((int)_countof(kFreeCamMenuItems));
-	default: return 1;   // 其余页都 ≤9
+	case kMenuPageFpb: return MenuPageCountForItems((int)_countof(kFpbMenuItems));
+	case kMenuPageFpbDynamic: return MenuPageCountForItems((int)_countof(kFpbDynamicMenuItems));
+	case kMenuPageFpbPos: return MenuPageCountForItems((int)_countof(kFpbPosMenuItems));
+	default: return 1;   // 其余页都 ≤9（含 FPB 诊断页）
 	}
 }
 static void MenuSubSync() {
@@ -30604,11 +30736,14 @@ static void MenuPaintEngine() {
 						hint = UiText(UiId::AlarmCarGlowEntryHint, L"    只提示仍可触发的警报车；不改触发距离。默认关。");
 					} else if (item->action == SkeetoScriptMenuAction::OpenClientPerf) {
 						hint = UiText(UiId::ClientPerfEntryHint, L"    按组写入 ConVar；关闭还原本组。不含加载提速已管的 mod_load_*。收益因机而异，默认关。");
+					} else if (item->action == SkeetoScriptMenuAction::OpenFpb) {
+						hint = UiText(UiId::FpbEntryHint, L"    第一人称显示本机身体；可藏头/手臂并调节位置。仅本机渲染，默认关。");
 					}
 					const bool opens = item->action == SkeetoScriptMenuAction::OpenParry
 						|| item->action == SkeetoScriptMenuAction::OpenSupplyScan
 						|| item->action == SkeetoScriptMenuAction::OpenAlarmCarGlow
-						|| item->action == SkeetoScriptMenuAction::OpenClientPerf;
+						|| item->action == SkeetoScriptMenuAction::OpenClientPerf
+						|| item->action == SkeetoScriptMenuAction::OpenFpb;
 					if (opens)
 						wcsncpy_s(buf, _countof(buf), UiText(item->labelId, item->label), _TRUNCATE);
 					else
@@ -33120,6 +33255,149 @@ static void MenuPaintEngine() {
 			swprintf_s(buf, 192, UiText(UiId::FreeCamStatus, L"    当前状态：%s"), FreeCamStateText());
 			y = SurfWrapDesign(y, cHint, buf, MenuHintGap());
 			footerNav();
+		} else if (g_menuPage == kMenuPageFpb || g_menuPage == kMenuPageFpbDynamic
+			|| g_menuPage == kMenuPageFpbPos || g_menuPage == kMenuPageFpbDiag) {
+			const wchar_t* title = UiText(UiId::FpbTitle, L"更好的第一人称身体  v%s");
+			if (g_menuPage == kMenuPageFpbDynamic)
+				title = UiText(UiId::FpbDynTitle, L"第一人称身体 / 动态锚点  v%s");
+			else if (g_menuPage == kMenuPageFpbPos)
+				title = UiText(UiId::FpbPosTitle, L"第一人称身体 / 模型位置  v%s");
+			else if (g_menuPage == kMenuPageFpbDiag)
+				title = UiText(UiId::FpbDiagTitle, L"第一人称身体 / 运行诊断  v%s");
+			swprintf_s(buf, 192, title, SKEETO_VERSION_W);
+			line(10, cTitle, buf);
+			rule();
+			int y = 48;
+			const int lh = MenuDesignLineH();
+			y = SurfWrapDesign(y, RGB(255, 220, 80), UiText(UiId::FpbSourceCredit,
+				L"    原功能与源码来自 L4D2-Visual-Effects Lux's Survivor Legs Advanced；Skeeto仅负责整合。"), MenuHintGap());
+			if (g_menuPage == kMenuPageFpb) {
+				y = SurfWrapDesign(y, cHint, UiText(UiId::FpbEntryHint,
+					L"    本机第一人称身体：藏头/手臂，同帧相机动态锚点与 MOD 校准。默认关。"), MenuHintGap());
+			}
+			if (g_menuPage == kMenuPageFpbDynamic) {
+				y = SurfWrapDesign(y, cHint, UiText(UiId::FpbProfilePathHint,
+					L"    按 MOD 的校准保存在 left4dead2/skeeto/fpb/profiles.ini，不写入 skeeto_setting.ini。"), MenuHintGap());
+			}
+			if (g_menuPage == kMenuPageFpbDiag) {
+				wchar_t wstatus[160]{};
+				MultiByteToWideChar(CP_UTF8, 0, g_fpbStatus, -1, wstatus, 160);
+				swprintf_s(buf, 192, L"    %s", wstatus[0] ? wstatus : L"-");
+				y = SurfWrapDesign(y, cHint, buf, MenuHintGap());
+				swprintf_s(buf, 192, UiText(UiId::FpbDiagView,
+					L"    视角：%hs  shoulder=%d  xy=%.0f  eyeZ=%.0f"),
+					skeeto_fpb::viewcompat::Label(g_fpbViewMode), g_fpbShoulderCached,
+					g_fpbViewHoriz, g_fpbViewEyeZ);
+				y = SurfWrapDesign(y, cHint, buf, MenuHintGap());
+				swprintf_s(buf, 192, UiText(UiId::FpbDiagBody,
+					L"    门控=%s  世界锚定=%s  动态=%s  跟随偏航=%s"),
+					onoff(g_fpbGateOpen), onoff(g_fpbWorldBody),
+					onoff(g_fpb.dynamicAnchor), onoff(g_fpb.followCameraYaw));
+				y = SurfWrapDesign(y, cHint, buf, MenuHintGap());
+				wchar_t wmodel[96]{};
+				if (g_fpbStudio.modelName[0]) {
+					const size_t n = std::strlen(g_fpbStudio.modelName);
+					const char* src = g_fpbStudio.modelName;
+					if (n > 54) src += n - 54;
+					MultiByteToWideChar(CP_UTF8, 0, src, -1, wmodel, 96);
+				} else {
+					wcsncpy_s(wmodel, _countof(wmodel),
+						UiText(UiId::FpbDiagNoModel, L"尚未识别本机MOD"), _TRUNCATE);
+				}
+				const bool hasProf = g_fpbStudio.modelName[0]
+					&& skeeto_fpb::FindProfile(g_fpbProfiles, g_fpbStudio.modelName, g_fpbStudio.checksum);
+				swprintf_s(buf, 192, UiText(UiId::FpbDiagModel, L"    本机 MOD：%s"), wmodel);
+				y = SurfWrapDesign(y, cHint, buf, MenuHintGap());
+				y = SurfWrapDesign(y, cHint, hasProf
+					? UiText(UiId::FpbDiagProfYes, L"    本 MOD 校准已保存")
+					: UiText(UiId::FpbDiagProfNo, L"    本 MOD 没有单独校准"), MenuHintGap());
+				y = SurfWrapDesign(y, cHint, UiText(UiId::FpbDiagCompat,
+					L"    模型 MOD 与游戏版本的兼容性取决于实际环境"), MenuHintGap());
+				footerNav();
+			} else {
+			const int itemCount = (g_menuPage == kMenuPageFpb) ? (int)_countof(kFpbMenuItems)
+				: (g_menuPage == kMenuPageFpbDynamic) ? (int)_countof(kFpbDynamicMenuItems)
+				: (int)_countof(kFpbPosMenuItems);
+			for (int digit = 1; digit <= itemCount; ++digit) {
+				const FpbMenuItem* item = FpbMenuItemAt(g_menuPage, digit);
+				if (!item) break;
+				COLORREF color = cText;
+				buf[0] = 0;
+				switch (item->action) {
+				case FpbMenuAction::Toggle:
+					swprintf_s(buf, 192, UiText(item->id, item->text), onoff(g_fpb.enabled));
+					color = col(g_fpb.enabled);
+					break;
+				case FpbMenuAction::HideHead:
+					swprintf_s(buf, 192, UiText(item->id, item->text), onoff(g_fpb.hideHead));
+					color = col(g_fpb.hideHead);
+					break;
+				case FpbMenuAction::HideArms:
+					swprintf_s(buf, 192, UiText(item->id, item->text), onoff(g_fpb.hideArms));
+					color = col(g_fpb.hideArms);
+					break;
+				case FpbMenuAction::TpCompat:
+					swprintf_s(buf, 192, UiText(item->id, item->text), onoff(g_fpb.thirdPersonCompat));
+					color = col(g_fpb.thirdPersonCompat);
+					break;
+				case FpbMenuAction::OpenDynamic:
+				case FpbMenuAction::OpenPos:
+				case FpbMenuAction::OpenDiag:
+					wcsncpy_s(buf, _countof(buf), UiText(item->id, item->text), _TRUNCATE);
+					color = cText;
+					break;
+				case FpbMenuAction::DynamicToggle:
+					swprintf_s(buf, 192, UiText(item->id, item->text), onoff(g_fpb.dynamicAnchor));
+					color = col(g_fpb.dynamicAnchor);
+					break;
+				case FpbMenuAction::FollowYaw:
+					swprintf_s(buf, 192, UiText(item->id, item->text), onoff(g_fpb.followCameraYaw));
+					color = col(g_fpb.followCameraYaw);
+					break;
+				case FpbMenuAction::FallbackEye:
+					swprintf_s(buf, 192, UiText(item->id, item->text), g_fpb.fallbackEyeHeight);
+					color = g_fpbDynAdjustSel == 0 ? cAdjust : RGB(180, 220, 255);
+					break;
+				case FpbMenuAction::YawTrim:
+					swprintf_s(buf, 192, UiText(item->id, item->text), g_fpb.yawTrim);
+					color = g_fpbDynAdjustSel == 1 ? cAdjust : RGB(180, 220, 255);
+					break;
+				case FpbMenuAction::BindModel:
+				case FpbMenuAction::EraseModel:
+					wcsncpy_s(buf, _countof(buf), UiText(item->id, item->text), _TRUNCATE);
+					color = cText;
+					break;
+				case FpbMenuAction::Forward:
+					swprintf_s(buf, 192, UiText(item->id, item->text), g_fpb.forward);
+					color = g_fpbAdjustSel == 0 ? cAdjust : RGB(180, 220, 255);
+					break;
+				case FpbMenuAction::Right:
+					swprintf_s(buf, 192, UiText(item->id, item->text), g_fpb.right);
+					color = g_fpbAdjustSel == 1 ? cAdjust : RGB(180, 220, 255);
+					break;
+				case FpbMenuAction::Up:
+					swprintf_s(buf, 192, UiText(item->id, item->text), g_fpb.up);
+					color = g_fpbAdjustSel == 2 ? cAdjust : RGB(180, 220, 255);
+					break;
+				case FpbMenuAction::Step:
+					swprintf_s(buf, 192, UiText(item->id, item->text), g_fpb.step);
+					color = cText;
+					break;
+				case FpbMenuAction::ResetPos:
+					wcsncpy_s(buf, _countof(buf), UiText(item->id, item->text), _TRUNCATE);
+					color = cText;
+					break;
+				default:
+					color = cMuted;
+					break;
+				}
+				MenuRenumberItem(buf, _countof(buf), digit);
+				line(y, color, buf); y += lh;
+			}
+			if (g_menuPage == kMenuPageFpbDynamic && g_fpbMenuNote[0])
+				y = SurfWrapDesign(y + 4, RGB(255, 220, 80), g_fpbMenuNote, MenuHintGap());
+			footerNav();
+			} // non-diag FPB pages
 		} else if (g_menuPage == kMenuPageInteractScan) {
 			line(10, cTitle, UiText(UiId::InteractScanTitle, L"可交互物品扫描"));
 			rule();
@@ -36582,6 +36860,24 @@ static void MenuAdjustCurrentPage(int dir) {
 	}
 	if (g_menuPage == kMenuPageFreeCam) {
 		g_freeCamSpeed = skeeto_freecam::ClampSpeed(g_freeCamSpeed + dir * 50);
+		SaveSettings();
+		return;
+	}
+	if (g_menuPage == kMenuPageFpbPos) {
+		float* slot = g_fpbAdjustSel == 1 ? &g_fpb.right : (g_fpbAdjustSel == 2 ? &g_fpb.up : &g_fpb.forward);
+		*slot = skeeto_fpb::ClampAxis(*slot + dir * g_fpb.step);
+		skeeto_fpb::Normalize(g_fpb);
+		FpbResetTrack();
+		SaveSettings();
+		return;
+	}
+	if (g_menuPage == kMenuPageFpbDynamic) {
+		if (g_fpbDynAdjustSel == 1)
+			g_fpb.yawTrim = skeeto_fpb::ClampRange(g_fpb.yawTrim + dir * 5.f, -40.f, 40.f, 0.f);
+		else
+			g_fpb.fallbackEyeHeight = skeeto_fpb::ClampRange(g_fpb.fallbackEyeHeight + dir * 1.f, -8.f, 24.f, 5.f);
+		skeeto_fpb::Normalize(g_fpb);
+		FpbResetTrack();
 		SaveSettings();
 		return;
 	}
@@ -41308,6 +41604,12 @@ static void MenuProcessKeyImpl(int digit) {
 			EngClientCmd("play buttons/button14");
 			return;
 		}
+		if (item->action == SkeetoScriptMenuAction::OpenFpb) {
+			g_menuPage = item->targetPage;
+			g_menuSub = 0;
+			EngClientCmd("play buttons/button14");
+			return;
+		}
 		return;
 	}
 	if (g_menuPage == kMenuPageClientPerf) {
@@ -41359,6 +41661,126 @@ static void MenuProcessKeyImpl(int digit) {
 				return;
 			}
 			FreeCamToggleFlying();
+			break;
+		default:
+			return;
+		}
+		SaveSettings();
+		MenuMarkDirty();
+		EngClientCmd("play buttons/button14");
+		return;
+	}
+	if (g_menuPage == kMenuPageFpb || g_menuPage == kMenuPageFpbDynamic
+		|| g_menuPage == kMenuPageFpbPos || g_menuPage == kMenuPageFpbDiag) {
+		if (digit == 0) {
+			if (g_menuPage == kMenuPageFpb) {
+				g_menuPage = kMenuPageSkeetoScript;
+				g_menuSub = 2;
+				g_menuPagePrev = kMenuPageSkeetoScript;
+			} else {
+				g_menuPage = kMenuPageFpb;
+				g_menuSub = 0;
+				g_menuPagePrev = kMenuPageFpb;
+			}
+			g_fpbMenuNote[0] = 0;
+			EngClientCmd("play buttons/button11");
+			return;
+		}
+		if (g_menuPage == kMenuPageFpbDiag) return;
+		const FpbMenuItem* item = FpbMenuItemAt(g_menuPage, digit);
+		if (!item) return;
+		switch (item->action) {
+		case FpbMenuAction::Toggle:
+			g_fpb.enabled = !g_fpb.enabled;
+			if (!g_fpb.enabled) FpbEndSession();
+			break;
+		case FpbMenuAction::HideHead:
+			g_fpb.hideHead = !g_fpb.hideHead;
+			break;
+		case FpbMenuAction::HideArms:
+			g_fpb.hideArms = !g_fpb.hideArms;
+			break;
+		case FpbMenuAction::TpCompat:
+			g_fpb.thirdPersonCompat = !g_fpb.thirdPersonCompat;
+			g_fpbViewLatch.Reset();
+			break;
+		case FpbMenuAction::OpenDynamic:
+			g_menuPage = kMenuPageFpbDynamic;
+			g_menuSub = 0;
+			g_menuPagePrev = kMenuPageFpbDynamic;
+			g_fpbMenuNote[0] = 0;
+			EngClientCmd("play buttons/button14");
+			MenuMarkDirty();
+			return;
+		case FpbMenuAction::OpenPos:
+			g_menuPage = kMenuPageFpbPos;
+			g_menuSub = 0;
+			g_menuPagePrev = kMenuPageFpbPos;
+			EngClientCmd("play buttons/button14");
+			MenuMarkDirty();
+			return;
+		case FpbMenuAction::OpenDiag:
+			g_menuPage = kMenuPageFpbDiag;
+			g_menuSub = 0;
+			g_menuPagePrev = kMenuPageFpbDiag;
+			EngClientCmd("play buttons/button14");
+			MenuMarkDirty();
+			return;
+		case FpbMenuAction::DynamicToggle:
+			g_fpb.dynamicAnchor = !g_fpb.dynamicAnchor;
+			FpbResetTrack();
+			break;
+		case FpbMenuAction::FollowYaw:
+			g_fpb.followCameraYaw = !g_fpb.followCameraYaw;
+			FpbResetTrack();
+			break;
+		case FpbMenuAction::FallbackEye:
+			g_fpbDynAdjustSel = 0;
+			break;
+		case FpbMenuAction::YawTrim:
+			g_fpbDynAdjustSel = 1;
+			break;
+		case FpbMenuAction::BindModel:
+			if (g_fpbStudio.modelName[0]
+				&& skeeto_fpb::StoreForModel(g_fpbProfiles, g_fpb, g_fpbStudio.modelName, g_fpbStudio.checksum)) {
+				FpbSaveProfiles();
+				wcsncpy_s(g_fpbMenuNote, _countof(g_fpbMenuNote),
+					UiText(UiId::FpbBindOk, L"已绑定到本 MOD，并写入 skeeto/fpb/profiles.ini"), _TRUNCATE);
+				FpbResetTrack();
+			} else {
+				wcsncpy_s(g_fpbMenuNote, _countof(g_fpbMenuNote),
+					UiText(UiId::FpbBindFail, L"未识别到本机 MOD，或校准槽已满"), _TRUNCATE);
+			}
+			break;
+		case FpbMenuAction::EraseModel:
+			if (g_fpbStudio.modelName[0]
+				&& skeeto_fpb::EraseForModel(g_fpbProfiles, g_fpbStudio.modelName, g_fpbStudio.checksum)) {
+				FpbSaveProfiles();
+				wcsncpy_s(g_fpbMenuNote, _countof(g_fpbMenuNote),
+					UiText(UiId::FpbEraseOk, L"已从 skeeto/fpb/profiles.ini 清除本 MOD 校准"), _TRUNCATE);
+				FpbResetTrack();
+			} else {
+				wcsncpy_s(g_fpbMenuNote, _countof(g_fpbMenuNote),
+					UiText(UiId::FpbEraseFail, L"本 MOD 没有独立校准"), _TRUNCATE);
+			}
+			break;
+		case FpbMenuAction::Forward:
+			g_fpbAdjustSel = 0;
+			break;
+		case FpbMenuAction::Right:
+			g_fpbAdjustSel = 1;
+			break;
+		case FpbMenuAction::Up:
+			g_fpbAdjustSel = 2;
+			break;
+		case FpbMenuAction::Step:
+			g_fpb.step = (g_fpb.step == 0.5f) ? 1.f : (g_fpb.step == 1.f ? 5.f : 0.5f);
+			skeeto_fpb::Normalize(g_fpb);
+			break;
+		case FpbMenuAction::ResetPos:
+			g_fpb.forward = g_fpb.right = g_fpb.up = 0.f;
+			skeeto_fpb::Normalize(g_fpb);
+			FpbResetTrack();
 			break;
 		default:
 			return;
@@ -47515,24 +47937,65 @@ static void* TabPrEntity() {
 	return nullptr;
 }
 
-// ---- Steam avatars (fetched in command callbacks only) -----------------------
+// ---- Steam avatars -----------------------------------------------------------
+// Same flat steam_api.dll path as main-menu friends (proven). Never call Steam
+// from TAB/key handlers — Paint fetches at most 1 account and uploads 1 texture
+// per tick; the board draws a placeholder until Ready.
 enum { kTabAvEmpty = 0, kTabAvPending, kTabAvRgba, kTabAvReady, kTabAvNone };
 struct TabAvatar {
 	uint32_t acct;
 	int texPlus1;      // surface texture id + 1 (0 = not created); kept for reuse
 	int w, h;
 	int state;
-	int tries;
-	int grade;         // 2 = large avatar kept; 1 = medium while large is still downloading
+	int tries;         // polls since last RequestUserInformation
 	int epoch;
 	DWORD lastUse;
-	DWORD retryAt;
+	DWORD retryAt;     // next image poll
+	DWORD requestAt;   // next allowed RequestUserInformation
 };
 static constexpr int kTabAvMax = 40; // >= 32 player slots + churn
-static constexpr int kTabAvPx = 184; // Steam large friend avatar
+static constexpr int kTabAvPx = 64;  // medium (or small) — fits TAB/chap faces
+static constexpr DWORD kTabAvPollMs = 1500u;
+static constexpr DWORD kTabAvRequestMs = 10000u;
 static TabAvatar g_tbAv[kTabAvMax];
 static unsigned char g_tbAvRgba[kTabAvMax][kTabAvPx * kTabAvPx * 4];
 static int g_tbSteamUniverse = 0;
+
+struct TabSteamApi {
+	void*(__cdecl* friends)() = nullptr;
+	void*(__cdecl* utils)() = nullptr;
+	bool(__cdecl* request)(void*, uint64_t, bool) = nullptr;
+	int(__cdecl* medium)(void*, uint64_t) = nullptr;
+	int(__cdecl* smallAv)(void*, uint64_t) = nullptr;
+	bool(__cdecl* size)(void*, int, uint32_t*, uint32_t*) = nullptr;
+	bool(__cdecl* rgba)(void*, int, unsigned char*, int) = nullptr;
+	int(__cdecl* universe)(void*) = nullptr;
+	bool bound = false;
+	bool ok = false;
+};
+static TabSteamApi g_tabSteam{};
+
+static bool TabSteamBind() {
+	if (g_tabSteam.bound) return g_tabSteam.ok;
+	g_tabSteam.bound = true;
+	HMODULE api = GetModuleHandleW(L"steam_api.dll");
+	if (!api) return false;
+	auto& f = g_tabSteam;
+#define TAB_STEAM_BIND(member, exportName) f.member = (decltype(f.member))GetProcAddress(api, exportName)
+	TAB_STEAM_BIND(friends, "SteamAPI_SteamFriends_v017");
+	TAB_STEAM_BIND(utils, "SteamAPI_SteamUtils_v010");
+	TAB_STEAM_BIND(request, "SteamAPI_ISteamFriends_RequestUserInformation");
+	TAB_STEAM_BIND(medium, "SteamAPI_ISteamFriends_GetMediumFriendAvatar");
+	TAB_STEAM_BIND(smallAv, "SteamAPI_ISteamFriends_GetSmallFriendAvatar");
+	TAB_STEAM_BIND(size, "SteamAPI_ISteamUtils_GetImageSize");
+	TAB_STEAM_BIND(rgba, "SteamAPI_ISteamUtils_GetImageRGBA");
+	TAB_STEAM_BIND(universe, "SteamAPI_ISteamUtils_GetConnectedUniverse");
+#undef TAB_STEAM_BIND
+	if (!f.friends || !f.utils || !f.size || !f.rgba || (!f.medium && !f.smallAv))
+		return false;
+	g_tabSteam.ok = true;
+	return true;
+}
 
 static TabAvatar* TabAvatarFind(uint32_t acct) {
 	if (!acct) return nullptr;
@@ -47559,157 +48022,116 @@ static TabAvatar* TabAvatarAlloc(uint32_t acct, DWORD now) {
 	return &a;
 }
 
-static bool TabSteamIfaces(void** friends, void** utils) {
-	*friends = nullptr;
-	*utils = nullptr;
-	if (!g_engine || !IfaceAlive(g_engine)) return false;
-	using CtxFn = void*(__thiscall*)(void*);
-	auto fn = (CtxFn)VGet(g_engine, 170); // IVEngineClient013::GetSteamAPIContext (as L4N)
-	if (!fn || !IsExec((void*)fn)) return false;
-	uint8_t* ctx = (uint8_t*)fn(g_engine);
-	if (!ctx || !PtrCommitted(ctx) || !PtrCommitted(ctx + 0xC)) return false;
-	void* fr = *(void**)(ctx + 0x8);   // ISteamFriends
-	void* ut = *(void**)(ctx + 0xC);   // ISteamUtils
-	if (!fr || !ut || !IfaceAlive(fr) || !IfaceAlive(ut)) return false;
-	*friends = fr;
-	*utils = ut;
-	return true;
-}
-
-// 1 = final RGBA copied, 2 = medium copied while the large avatar is still downloading,
-// 0 = still downloading, -1 = no avatar / failure.
-static int TabAvatarFetchOne(void* fr, void* ut, uint64_t sid, unsigned char* out, int* w, int* h) {
-	using ReqFn = bool(__thiscall*)(void*, uint64_t, bool);
-	using AvFn = int(__thiscall*)(void*, uint64_t);
-	using SizeFn = bool(__thiscall*)(void*, int, uint32_t*, uint32_t*);
-	using RgbaFn = bool(__thiscall*)(void*, int, uint8_t*, int);
-	using AvCdecl = int(__cdecl*)(void*, uint64_t);
-	static AvCdecl largeFn = nullptr, mediumFn = nullptr;
-	static bool avatarBound = false;
-	if (!avatarBound) {
-		avatarBound = true;
-		HMODULE api = GetModuleHandleW(L"steam_api.dll");
-		if (api) {
-			largeFn = (AvCdecl)GetProcAddress(api, "SteamAPI_ISteamFriends_GetLargeFriendAvatar");
-			mediumFn = (AvCdecl)GetProcAddress(api, "SteamAPI_ISteamFriends_GetMediumFriendAvatar");
+static int TabSteamUniverse() {
+	if (g_tbSteamUniverse >= 1 && g_tbSteamUniverse <= 4) return g_tbSteamUniverse;
+	int u = 1;
+	if (TabSteamBind() && g_tabSteam.universe) {
+		__try {
+			void* ut = g_tabSteam.utils();
+			if (ut) {
+				const int got = g_tabSteam.universe(ut);
+				if (got >= 1 && got <= 4) u = got;
+			}
+		} __except (EXCEPTION_EXECUTE_HANDLER) {
+			u = 1;
 		}
 	}
-	auto req = (ReqFn)VGet(fr, 37);   // RequestUserInformation
-	auto av = (AvFn)VGet(fr, 35);     // GetMediumFriendAvatar fallback
-	auto sz = (SizeFn)VGet(ut, 5);    // GetImageSize
-	auto rgba = (RgbaFn)VGet(ut, 6);  // GetImageRGBA
-	if (!req || !sz || !rgba || !IsExec((void*)req) || !IsExec((void*)sz) || !IsExec((void*)rgba))
-		return -1;
-	if (!largeFn && !mediumFn && (!av || !IsExec((void*)av))) return -1;
+	g_tbSteamUniverse = u;
+	return u;
+}
+
+// 1 = RGBA ready, 0 = still downloading / not ready, -1 = hard failure.
+// Prefer medium (64); fall back to small (32). Never touch large.
+static int TabAvatarFetchOne(uint64_t sid, unsigned char* out, int* w, int* h, bool doRequest) {
+	if (!TabSteamBind()) return -1;
+	auto& f = g_tabSteam;
 	__try {
-		// Kick the download only. Do not branch on the bool: public Steam docs say
-		// true = already cached, but treating the opposite as a hard miss made
-		// avatars go blank for 120s after a just-sent request.
-		req(fr, sid, false);
+		void* fr = f.friends();
+		void* ut = f.utils();
+		if (!fr || !ut) return -1;
+		if (doRequest && f.request)
+			f.request(fr, sid, false);
 		int img = 0;
-		bool haveLarge = false;
-		int large = 0;
-		if (largeFn) {
-			large = largeFn(fr, sid);
-			if (large > 0) { img = large; haveLarge = true; }
-		}
-		if (img <= 0) {
-			img = mediumFn ? mediumFn(fr, sid) : (av ? av(fr, sid) : 0);
-		}
-		// 0 / negative handle: Steam has not published the RGBA yet (common for
-		// players who joined after the local client). Keep polling — never hard-fail.
+		if (f.medium) img = f.medium(fr, sid);
+		if (img <= 0 && f.smallAv) img = f.smallAv(fr, sid);
 		if (img <= 0) return 0;
 		uint32_t iw = 0, ih = 0;
-		if (!sz(ut, img, &iw, &ih) || iw == 0 || ih == 0 || iw > (uint32_t)kTabAvPx || ih > (uint32_t)kTabAvPx)
-			return 0; // handle can precede size/RGBA readiness for late joiners
-		if (!rgba(ut, img, out, (int)(iw * ih * 4u))) return 0;
+		if (!f.size(ut, img, &iw, &ih) || iw == 0 || ih == 0
+			|| iw > (uint32_t)kTabAvPx || ih > (uint32_t)kTabAvPx)
+			return 0;
+		if (!f.rgba(ut, img, out, (int)(iw * ih * 4u))) return 0;
 		*w = (int)iw;
 		*h = (int)ih;
-		// Medium while large is still missing stays interim so pass-2 can upgrade.
-		return haveLarge ? 1 : 2;
+		return 1;
 	} __except (EXCEPTION_EXECUTE_HANDLER) {
 		return -1;
 	}
 }
 
-static int TabSteamUniverse(void* ut) {
-	if (g_tbSteamUniverse >= 1 && g_tbSteamUniverse <= 4) return g_tbSteamUniverse;
-	using UniFn = int(__thiscall*)(void*);
-	auto fn = (UniFn)VGet(ut, 2);     // GetConnectedUniverse
-	int u = 0;
-	if (fn && IsExec((void*)fn)) {
-		__try { u = fn(ut); } __except (EXCEPTION_EXECUTE_HANDLER) { u = 0; }
-	}
-	g_tbSteamUniverse = (u >= 1 && u <= 4) ? u : 1;
-	return g_tbSteamUniverse;
-}
-
+// At most maxWork Steam polls. Prefer visible TAB rows, then slot 1..32.
+// Call from throttled Paint only — never from TAB/key handlers.
 static void TabAvatarFetch(int maxWork) {
 	if (!(g_optTabBoard || g_optChapStats) || !g_engine || !EngInGame() || EngDrawingLoading()) return;
-	void* fr = nullptr;
-	void* ut = nullptr;
-	bool ifaces = false;
+	if (maxWork < 1) maxWork = 1;
+	if (!TabSteamBind()) return;
 	const DWORD now = GetTickCount();
+	const int uni = TabSteamUniverse();
 	int work = 0;
-	for (int pass = 0; pass < 2 && work < maxWork; ++pass) {
-		const bool upgrades = pass == 1;
-		for (int i = 1; i <= 32 && work < maxWork; ++i) {
+
+	auto processAcct = [&](uint32_t acct) -> bool {
+		if (!acct || work >= maxWork) return false;
+		TabAvatar* a = TabAvatarAlloc(acct, now);
+		if (!a) return false;
+		a->lastUse = now;
+		if (a->state == kTabAvReady || a->state == kTabAvRgba) return false;
+		if (a->retryAt && (LONG)(now - a->retryAt) < 0) return false;
+		++work;
+		const bool needKick = !a->requestAt
+			|| a->state == kTabAvNone
+			|| (a->state == kTabAvPending && (LONG)(now - a->requestAt) >= 0);
+		if (needKick) {
+			a->requestAt = now + kTabAvRequestMs;
+			a->tries = 0;
+		}
+		const uint64_t sid = (uint64_t)acct | (1ull << 32) | (1ull << 52)
+			| ((uint64_t)uni << 56);
+		int w = 0, h = 0;
+		const int r = TabAvatarFetchOne(sid, g_tbAvRgba[a - g_tbAv], &w, &h, needKick);
+		if (r == 1) {
+			a->w = w;
+			a->h = h;
+			a->tries = 0;
+			a->retryAt = 0;
+			a->state = kTabAvRgba;
+		} else if (r == 0) {
+			a->state = kTabAvPending;
+			a->retryAt = now + kTabAvPollMs;
+			++a->tries;
+			// Soft give-up: keep slot, wait for a fresh Request cycle.
+			if (a->tries > 8) {
+				a->state = kTabAvNone;
+				a->tries = 0;
+				a->retryAt = now + kTabAvRequestMs;
+				a->requestAt = now;
+			}
+		} else {
+			a->state = kTabAvNone;
+			a->retryAt = now + kTabAvRequestMs;
+			a->requestAt = now;
+		}
+		return true;
+	};
+
+	for (int i = 0; i < g_tbRowN && i < kTabRowsMax && work < maxWork; ++i) {
+		if (g_tbRows[i].bot || !g_tbRows[i].acct) continue;
+		processAcct(g_tbRows[i].acct);
+	}
+	for (int i = 1; i <= 32 && work < maxWork; ++i) {
 		PlayerInfo pi{};
 		if (!EngPlayerInfo(i, &pi) || PlayerInfoIsBot(pi)) continue;
 		uint32_t acct = 0;
 		memcpy(&acct, pi.pad1 + 36, sizeof(acct)); // player_info_t::friendsID
-		if (!acct) continue;
-		TabAvatar* a = TabAvatarAlloc(acct, now);
-		if (!a) continue;
-		a->lastUse = now;
-		const bool have = a->state == kTabAvRgba || a->state == kTabAvReady;
-		if (have && a->grade >= 2) continue;
-		if (!upgrades && have) continue;
-		if (have && a->retryAt && (LONG)(now - a->retryAt) < 0) continue;
-		if (a->state == kTabAvNone && (LONG)(now - a->retryAt) < 0) continue;
-		if (!ifaces) {
-			if (!TabSteamIfaces(&fr, &ut)) return;
-			ifaces = true;
-		}
-		++work;
-		const uint64_t sid = (uint64_t)acct | (1ull << 32) | (1ull << 52)
-			| ((uint64_t)TabSteamUniverse(ut) << 56);
-		int w = 0, h = 0;
-		const int r = TabAvatarFetchOne(fr, ut, sid, g_tbAvRgba[a - g_tbAv], &w, &h);
-		if (r == 1 || r == 2) {
-			const bool changed = !have || a->w != w || a->h != h;
-			a->w = w;
-			a->h = h;
-			a->grade = r == 1 ? 2 : 1;
-			if (r == 2) {
-				if (!have) a->tries = 0;
-				if (++a->tries > 8) a->grade = 2;
-				else a->retryAt = now + 3000u;
-			} else {
-				a->tries = 0;
-				a->retryAt = 0;
-			}
-			if (changed) a->state = kTabAvRgba;
-		} else if (r == 0) {
-			if (have) {
-				a->retryAt = now + 3000u;
-			} else {
-				a->state = kTabAvPending;
-				// Late joiners often need tens of seconds for Steam persona+avatar.
-				// The old 12-try / 60s None window blanked them for the rest of the hold.
-				if (++a->tries > 40) {
-					a->state = kTabAvNone;
-					a->tries = 0;
-					a->retryAt = now + 15000u;
-				}
-			}
-		} else if (!have) {
-			// Real faults only (exception / missing Steam iface). Keep short so a
-			// transient miss for a mid-join player can recover in the same match.
-			a->state = kTabAvNone;
-			a->retryAt = now + 15000u;
-		}
-	}
+		processAcct(acct);
 	}
 }
 
@@ -47736,12 +48158,10 @@ static void TabAvatarUploadTick(int budget = 2) {
 	}
 }
 
-// In-game only: pull missing avatars and upload pending RGBA before the settle
-// snapshot goes quiet (loading Paint must not CreateNewTextureID).
+// Settle quiet: upload only what Paint already fetched. No Steam burst here.
 static void ChapStatsAvatarFlush() {
 	if (!g_engine || !EngInGame() || EngDrawingLoading()) return;
-	TabAvatarFetch(16);
-	TabAvatarUploadTick(kTabAvMax);
+	TabAvatarUploadTick(2);
 }
 
 static int TabAvatarTex(uint32_t acct) {
@@ -47813,7 +48233,7 @@ static void TabBoardDown(bool skeetoFirst, int source) {
 		g_tbSkeetoMask &= ~bit;
 	}
 	TabBoardApplyHeld();
-	TabAvatarFetch(16);
+	// No Steam work on key-down: prefetch runs on Paint. Upload happens while drawn.
 }
 
 static void TabBoardUp(int source) {
@@ -47824,7 +48244,6 @@ static void TabBoardUp(int source) {
 	g_tbVanillaMask &= ~bit;
 	g_tbSkeetoMask &= ~bit;
 	TabBoardApplyHeld();
-	if (TabBoardActive()) TabAvatarFetch(16);
 }
 
 static void SkCmd_TabDown(int*) { TabBoardDown(true, 1); }
@@ -48534,19 +48953,19 @@ static void TabBoardPaint() {
 	if (!SurfGetScreenSize(&sw, &sh) || sw < 320 || sh < 240) return;
 	const bool icons = !g_tbQuietPaint;
 	TabBoardGather();
-	{
-		// Avatars still missing while the board is open: retry once per second.
-		// Fetch before upload so a just-arrived late joiner can bind this frame.
+	// Steam only on live Paint (not settle quiet). Prefetch already warms the cache;
+	// while open, at most one poll / 1.5 s so a held TAB never bursts Steam.
+	if (icons) {
 		const DWORD now = GetTickCount();
-		if (!g_tbAvRetryAt || now - g_tbAvRetryAt >= 1000u) {
+		if (!g_tbAvRetryAt || now - g_tbAvRetryAt >= 1500u) {
 			g_tbAvRetryAt = now;
 			bool missing = false;
 			for (int i = 0; i < g_tbRowN && !missing; ++i)
 				if (g_tbRows[i].acct && TabAvatarTex(g_tbRows[i].acct) < 0) missing = true;
-			if (missing) TabAvatarFetch(8);
+			if (missing) TabAvatarFetch(1);
 		}
+		TabAvatarUploadTick(1);
 	}
-	if (icons) TabAvatarUploadTick(4);
 
 	const int rows = g_tbRowN > 0 ? g_tbRowN : 1;
 	const bool twoGroups = g_tbSurvN > 0 && g_tbInfN + g_tbInfMore > 0;
@@ -50543,7 +50962,6 @@ static void SkCmd_ChapStatsDown(int*) {
 	if (!g_csHeld) g_csHeldAt = GetTickCount();
 	g_csHeld = true;
 	g_csRefreshAt = 0;
-	TabAvatarFetch(8);
 }
 
 static void SkCmd_ChapStatsUp(int*) {
@@ -50566,14 +50984,15 @@ static void ChapStatsOnToggle() {
 // where no texture upload happens, so Steam avatars are cached ahead of time.
 // Also warms the shared TAB cache while either feature is on, so a player who
 // joins mid-match is requested before the board is held open.
-// Every 1 s: <= 8 Steam requests (missing first) and <= 2 texture uploads.
+// Background: 1 Steam poll + 1 texture upload every 750 ms while TAB/chapstats on.
 static DWORD g_csAvAt = 0;
 static void ChapStatsAvatarPrefetch() {
+	if (!(g_optTabBoard || g_optChapStats)) return;
 	const DWORD now = GetTickCount();
-	if (g_csAvAt && (LONG)(now - g_csAvAt) < 1000) return;
+	if (g_csAvAt && (LONG)(now - g_csAvAt) < 750) return;
 	g_csAvAt = now;
-	TabAvatarFetch(8);
-	TabAvatarUploadTick();
+	TabAvatarFetch(1);
+	TabAvatarUploadTick(1);
 	if (g_optChapStats) ChapStatsPrefetchFaces();
 }
 
@@ -59561,28 +59980,15 @@ static_assert(offsetof(FreeCamCmd, angles) == 0x0C
 static constexpr unsigned kFreeCamViewOrigin = 60;
 static constexpr unsigned kFreeCamViewAngles = 72;
 
-// Retail x86 client.dll SHA256 c0a8e1e8...eeb4af1f: C_TerrorPlayer::DrawModel local-player
-// JZ rel8 gate. PassThrough (+0) draws the world body while the free camera is out of body.
-static constexpr uint32_t kFreeCamDrawGateRva = 0x2233f1u;
-static constexpr uint32_t kFreeCamDrawDispRva = 0x223402u;
-static constexpr uint8_t kFreeCamDrawOrig = 0x13;
-static constexpr uint8_t kFreeCamDrawPass = 0x00;
-static constexpr uint8_t kFreeCamDrawGate[] = {
-	0x57, 0xe8, 0x79, 0xc2, 0xde, 0xff, 0x83, 0xc4, 0x04,
-	0x80, 0xb8, 0xec, 0x25, 0x00, 0x00, 0x00, 0x74, 0x13,
-	0x8b, 0x55, 0x0c, 0x52, 0x53, 0x8b, 0xce, 0xe8,
-	0xf1, 0x0b, 0xe4, 0xff, 0x5b, 0x5f, 0x5e, 0x5d,
-	0xc2, 0x08, 0x00, 0x5b, 0x5f, 0x33, 0xc0, 0x5e, 0x5d,
-	0xc2, 0x08, 0x00
-};
-static_assert(kFreeCamDrawDispRva - kFreeCamDrawGateRva == 17
-	&& kFreeCamDrawGate[17] == kFreeCamDrawOrig, "free-cam DrawModel gate layout");
-
+// Local DrawModel JZ gate is shared with FPB via skeeto_local_draw_gate.h.
 static bool FreeCamReadable(const void* p, size_t bytes) {
 	return skmem::SpanProbeAt(p, bytes, (uintptr_t)_ReturnAddress());
 }
 static bool TpsAimResolve(); // shared ClientMode CreateMove resolve (defined below)
 static void FreeCamSetDrawLocal(bool enable);
+
+// FPB stayed runtime-gated after the enter-server AV bisect; FreeCam is back on.
+static constexpr bool kAllowFpbRuntime = false;
 
 static bool FreeCamWanted() {
 	return g_optFreeCam && g_run.load(std::memory_order_relaxed) && SkeetoFeaturesOn();
@@ -59592,7 +59998,7 @@ static bool FreeCamSceneReady() {
 		&& !g_mapEnterGameThreadResetPending.load(std::memory_order_acquire);
 }
 static bool ClientModeMoveWanted() {
-	return (g_optClientTpsAim || g_optFreeCam) && g_run.load(std::memory_order_relaxed) && SkeetoFeaturesOn();
+	return (g_optClientTpsAim || FreeCamWanted()) && g_run.load(std::memory_order_relaxed) && SkeetoFeaturesOn();
 }
 static void FreeCamHaltMotion() {
 	g_freeCam.Halt();
@@ -59693,86 +60099,383 @@ static bool FreeCamWriteView(void* setup, const skeeto_freecam::Vec3& origin, co
 	memcpy((char*)setup + kFreeCamViewAngles, &angles, 12);
 	return true;
 }
-static bool FreeCamDrawGateMatch(const uint8_t* data, bool allowPass) {
-	if (!data) return false;
-	for (size_t i = 0; i < sizeof(kFreeCamDrawGate); ++i) {
-		if (i == 17) {
-			if (data[i] != kFreeCamDrawOrig && !(allowPass && data[i] == kFreeCamDrawPass))
-				return false;
-		} else if (data[i] != kFreeCamDrawGate[i]) {
-			return false;
-		}
-	}
-	return true;
-}
 static void FreeCamSetDrawLocal(bool enable) {
 	if (GetCurrentThreadId() != g_paintTid) return;
 	if (!enable) {
 		if (!g_freeCamDrawOpen) return;
-		HMODULE mod = GetModuleHandleA("client.dll");
-		if (!mod || mod != g_freeCamDrawMod) {
-			g_freeCamDrawOpen = false;
-			g_freeCamDrawRejected = true;
-			g_freeCamDrawMod = nullptr;
-			return;
-		}
-		uint8_t* gate = (uint8_t*)mod + kFreeCamDrawGateRva;
-		uint8_t* disp = (uint8_t*)mod + kFreeCamDrawDispRva;
-		if (!FreeCamReadable(gate, sizeof(kFreeCamDrawGate)) || !IsExec(disp)
-			|| !FreeCamDrawGateMatch(gate, true) || *disp != kFreeCamDrawPass) {
-			g_freeCamDrawOpen = false;
-			g_freeCamDrawRejected = true;
-			g_freeCamDrawMod = nullptr;
-			return;
-		}
-		const uint8_t orig = kFreeCamDrawOrig;
-		if (!AfkWrite(disp, &orig, 1) || *disp != kFreeCamDrawOrig) {
-			g_freeCamDrawRejected = true;
-			g_freeCamDrawOpen = false;
-			g_freeCamDrawMod = nullptr;
-			return;
-		}
+		skeeto_local_draw::Release(skeeto_local_draw::Owner::FreeCam, g_paintTid, AfkWrite, IsExec);
 		g_freeCamDrawOpen = false;
 		g_freeCamDrawMod = nullptr;
+		g_freeCamDrawRejected = skeeto_local_draw::Rejected();
 		return;
 	}
-	if (g_freeCamDrawOpen || g_freeCamDrawRejected) return;
-	HMODULE mod = GetModuleHandleA("client.dll");
-	if (!mod) return;
-	const auto dos = (const IMAGE_DOS_HEADER*)mod;
-	if (dos->e_magic != IMAGE_DOS_SIGNATURE || dos->e_lfanew <= 0 || dos->e_lfanew > 4096) {
-		g_freeCamDrawRejected = true;
-		return;
+	if (g_freeCamDrawOpen) return;
+	if (skeeto_local_draw::Acquire(skeeto_local_draw::Owner::FreeCam, g_paintTid, AfkWrite, IsExec)) {
+		g_freeCamDrawOpen = true;
+		g_freeCamDrawMod = GetModuleHandleA("client.dll");
+		g_freeCamDrawRejected = false;
+	} else {
+		g_freeCamDrawRejected = skeeto_local_draw::Rejected();
 	}
-	const auto pe = (const IMAGE_NT_HEADERS32*)((const uint8_t*)mod + dos->e_lfanew);
-	if (pe->Signature != IMAGE_NT_SIGNATURE || pe->FileHeader.Machine != IMAGE_FILE_MACHINE_I386
-		|| pe->FileHeader.TimeDateStamp != 0x6A440ECFu || pe->OptionalHeader.SizeOfImage != 0x963000u) {
-		g_freeCamDrawRejected = true;
-		return;
-	}
-	uint8_t* gate = (uint8_t*)mod + kFreeCamDrawGateRva;
-	uint8_t* disp = (uint8_t*)mod + kFreeCamDrawDispRva;
-	if (!FreeCamReadable(gate, sizeof(kFreeCamDrawGate)) || !IsExec(disp)
-		|| !FreeCamDrawGateMatch(gate, true)) {
-		g_freeCamDrawRejected = true;
-		return;
-	}
-	if (*disp == kFreeCamDrawPass) {
-		// Already pass-through (e.g. another local-body patch). Do not own restore.
-		return;
-	}
-	if (*disp != kFreeCamDrawOrig) {
-		g_freeCamDrawRejected = true;
-		return;
-	}
-	const uint8_t pass = kFreeCamDrawPass;
-	if (!AfkWrite(disp, &pass, 1) || *disp != kFreeCamDrawPass) {
-		g_freeCamDrawRejected = true;
-		return;
-	}
-	g_freeCamDrawOpen = true;
-	g_freeCamDrawMod = mod;
 }
+
+// ---- First-person body (Lux Advanced): shared DrawModel gate + Studio draw decorate ----
+// Visual-Effects path: open the local DrawModel JZ, decorate ONLY the Studio DrawModel[25]
+// temporary bone matrices. Never hook TerrorPlayer BuildTransformations / never write 0x6c0.
+using FpbStudioFn = void(__thiscall*)(void*, void*, const void*, float(*)[3][4], float*, float*, const float*, int);
+static void** g_fpbStudioSlot = nullptr;
+static FpbStudioFn g_fpbStudioOriginal = nullptr;
+static bool g_fpbStudioHooked = false;
+static bool g_fpbStudioFailed = false;
+static bool g_fpbDecorate = false;
+static void* g_fpbLocalEnt = nullptr;
+static void FpbResetTrack() {
+	g_fpbTrack.Reset();
+	g_fpbCamEpoch++;
+}
+static bool FpbLoadProfiles() {
+	g_fpbProfiles.Clear();
+	if (!g_fpbPath[0]) return false;
+	HANDLE file = CreateFileW(g_fpbPath, GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+	if (file == INVALID_HANDLE_VALUE) {
+		const DWORD err = GetLastError();
+		return err == ERROR_FILE_NOT_FOUND || err == ERROR_PATH_NOT_FOUND;
+	}
+	LARGE_INTEGER size{};
+	DWORD read = 0;
+	char buf[256 * 1024 + 1];
+	const bool ok = GetFileSizeEx(file, &size) && size.QuadPart >= 0 && size.QuadPart <= 256 * 1024
+		&& ReadFile(file, buf, (DWORD)size.QuadPart, &read, nullptr) && read == (DWORD)size.QuadPart;
+	CloseHandle(file);
+	if (!ok) return false;
+	buf[read] = 0;
+	skeeto_fpb::ProfileStore parsed{};
+	if (!skeeto_fpb::ParseProfiles(buf, read, &parsed)) return false;
+	g_fpbProfiles = parsed;
+	return true;
+}
+static bool FpbSaveProfiles() {
+	if (!g_fpbPath[0]) return false;
+	char buf[256 * 1024];
+	size_t length = 0;
+	if (!skeeto_fpb::FormatProfiles(g_fpbProfiles, buf, sizeof(buf), &length) || !length)
+		return false;
+	wchar_t parent[SKT_PATH_CAP], temporary[SKT_PATH_CAP];
+	const size_t pathLength = std::wcslen(g_fpbPath);
+	if (pathLength + 5 > _countof(temporary)) return false;
+	std::memcpy(temporary, g_fpbPath, pathLength * sizeof(wchar_t));
+	std::memcpy(temporary + pathLength, L".tmp", 5 * sizeof(wchar_t));
+	std::memcpy(parent, g_fpbPath, (pathLength + 1) * sizeof(wchar_t));
+	wchar_t* filename = std::wcsrchr(parent, L'\\');
+	if (!filename) return false;
+	*filename = 0;
+	wchar_t* folder = std::wcsrchr(parent, L'\\');
+	if (!folder) return false;
+	*folder = 0;
+	if (!skviewmodelio::EnsureDirectory(parent)) return false;
+	*folder = L'\\';
+	if (!skviewmodelio::EnsureDirectory(parent)) return false;
+	HANDLE file = CreateFileW(temporary, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+	if (file == INVALID_HANDLE_VALUE) return false;
+	DWORD written = 0;
+	bool ok = WriteFile(file, buf, (DWORD)length, &written, nullptr)
+		&& written == length && FlushFileBuffers(file);
+	if (!CloseHandle(file)) ok = false;
+	if (ok) ok = MoveFileExW(temporary, g_fpbPath, MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
+	if (!ok) DeleteFileW(temporary);
+	return ok;
+}
+static void __fastcall Hooked_FpbStudio(void* self, void*, void* results, const void* info,
+	float (*bones)[3][4], float* flex, float* delayed, const float* origin, int flags);
+
+static bool FpbWanted() {
+	return kAllowFpbRuntime && g_fpb.enabled && g_run.load(std::memory_order_relaxed) && SkeetoFeaturesOn();
+}
+static bool FpbShoulderThirdPerson() {
+	return CvarGetIntRange("c_thirdpersonshoulder", 0, 1, 0) != 0;
+}
+static bool FpbStudioPeOk(HMODULE mod) {
+	if (!mod) return false;
+	const auto dos = (const IMAGE_DOS_HEADER*)mod;
+	if (dos->e_magic != IMAGE_DOS_SIGNATURE || dos->e_lfanew <= 0 || dos->e_lfanew > 4096)
+		return false;
+	const auto pe = (const IMAGE_NT_HEADERS32*)((const uint8_t*)mod + dos->e_lfanew);
+	if (pe->Signature != IMAGE_NT_SIGNATURE
+		|| pe->FileHeader.Machine != IMAGE_FILE_MACHINE_I386
+		|| pe->OptionalHeader.Magic != IMAGE_NT_OPTIONAL_HDR32_MAGIC)
+		return false;
+	// Same two studiorender PE profiles L4D2-Visual-Effects accepts.
+	const DWORD stamp = pe->FileHeader.TimeDateStamp;
+	const DWORD image = pe->OptionalHeader.SizeOfImage;
+	return stamp == 1782844886u && (image == 0x453000u || image == 0x653000u);
+}
+static void FpbRemoveStudioHook() {
+	if (!g_fpbStudioHooked || !g_fpbStudioSlot) return;
+	void* cur = nullptr;
+	if (skmem::Copy(&cur, g_fpbStudioSlot, sizeof(cur)) && cur == (void*)&Hooked_FpbStudio)
+		VtProtectWrite(g_fpbStudioSlot, (void*)g_fpbStudioOriginal, nullptr);
+	g_fpbStudioHooked = false;
+	g_fpbStudioSlot = nullptr;
+	g_fpbStudioOriginal = nullptr;
+}
+static bool FpbInstallStudioHook() {
+	if (g_fpbStudioFailed || g_fpbStudioHooked) return g_fpbStudioHooked;
+	HMODULE studio = GetModuleHandleA("studiorender.dll");
+	if (!studio || !FpbStudioPeOk(studio)) {
+		g_fpbStudioFailed = true;
+		return false;
+	}
+	auto factory = (CreateInterfaceFn)GetProcAddress(studio, "CreateInterface");
+	if (!factory) { g_fpbStudioFailed = true; return false; }
+	void* obj = factory("VStudioRender026", nullptr);
+	if (!obj || !FreeCamReadable(obj, sizeof(void*))) { g_fpbStudioFailed = true; return false; }
+	void** table = nullptr;
+	if (!skmem::Copy(&table, obj, sizeof(table)) || !table
+		|| !FreeCamReadable(table, 26 * sizeof(void*))) {
+		g_fpbStudioFailed = true;
+		return false;
+	}
+	void** slot = table + 25;
+	void* upstream = nullptr;
+	if (!skmem::Copy(&upstream, slot, sizeof(upstream)) || !IsExec(upstream)) {
+		g_fpbStudioFailed = true;
+		return false;
+	}
+	if (!VtProtectWrite(slot, (void*)&Hooked_FpbStudio, nullptr)) {
+		g_fpbStudioFailed = true;
+		return false;
+	}
+	g_fpbStudioSlot = slot;
+	g_fpbStudioOriginal = (FpbStudioFn)upstream;
+	g_fpbStudioHooked = true;
+	Log("fpb: hooked Studio DrawModel slot=25");
+	return true;
+}
+static bool FpbSampleLiveCamera(skeeto_fpb::dynamic::CameraPose& pose) {
+	if (!g_engine || !EngInGame() || EngDrawingLoading()) return false;
+	using MatFn = const float*(__thiscall*)(void*);
+	static MatFn s_clip = nullptr, s_view = nullptr;
+	static bool s_resolved = false;
+	if (!s_resolved) {
+		s_resolved = true;
+		s_clip = (MatFn)VGet(g_engine, 37);
+		s_view = (MatFn)VGet(g_engine, 38);
+		if (!IsExec((void*)s_clip) || !IsExec((void*)s_view)) {
+			s_clip = nullptr;
+			s_view = nullptr;
+		}
+	}
+	if (!s_clip || !s_view) return false;
+	const float* clip = s_clip(g_engine);
+	const float* view = s_view(g_engine);
+	if (!clip || !view || !FreeCamReadable(clip, 64) || !FreeCamReadable(view, 64)) return false;
+	float clipCopy[16], viewCopy[16];
+	std::memcpy(clipCopy, clip, 64);
+	std::memcpy(viewCopy, view, 64);
+	return skeeto_fpb::dynamic::CameraFromMatrices(viewCopy, clipCopy, pose);
+}
+static void __fastcall Hooked_FpbStudio(void* self, void*, void* results, const void* info,
+	float (*bones)[3][4], float* flex, float* delayed, const float* origin, int flags) {
+	FpbStudioFn original = g_fpbStudioOriginal;
+	if (!original) return;
+	if (!g_fpbDecorate || !info || !bones || !origin || !g_fpbLocalEnt
+		|| skeeto_fpb::freecamerabody::PassOriginalStudio(g_freeCamFlying)) {
+		original(self, results, info, bones, flex, delayed, origin, flags);
+		return;
+	}
+	// DrawModelInfo_t: +0 = studiohdr_t* (raw MDL), +24 = IClientRenderable*.
+	void* raw = nullptr;
+	void* renderable = nullptr;
+	if (!skmem::Copy(&raw, info, sizeof(raw)) || !raw
+		|| !skmem::Copy(&renderable, (const uint8_t*)info + 24, sizeof(renderable))
+		|| renderable != (void*)((uintptr_t)g_fpbLocalEnt + 4)) {
+		original(self, results, info, bones, flex, delayed, origin, flags);
+		return;
+	}
+	int count = 0;
+	uint32_t magic = 0;
+	if (!skmem::Copy(&magic, raw, sizeof(magic)) || magic != 0x54534449u
+		|| !skmem::Copy(&count, (const uint8_t*)raw + 0x9c, sizeof(count))
+		|| count <= 0 || count > skeeto_fpb::kMaxBones) {
+		original(self, results, info, bones, flex, delayed, origin, flags);
+		return;
+	}
+	const bool wantParts = g_fpb.hideHead || g_fpb.hideArms;
+	const bool wantDynamic = g_fpb.dynamicAnchor;
+	const bool wantOffset = g_fpb.forward != 0.f || g_fpb.right != 0.f || g_fpb.up != 0.f;
+	if (!wantParts && !wantDynamic && !wantOffset) {
+		original(self, results, info, bones, flex, delayed, origin, flags);
+		return;
+	}
+	float temp[skeeto_fpb::kMaxBones][3][4];
+	if (!skmem::Copy(temp, bones, count * sizeof(temp[0]))) {
+		original(self, results, info, bones, flex, delayed, origin, flags);
+		return;
+	}
+	for (int i = 0; i < count; ++i) {
+		if (!skeeto_fpb::MatrixOk(temp[i])) {
+			original(self, results, info, bones, flex, delayed, origin, flags);
+			return;
+		}
+	}
+	if (g_fpbStudio.raw != raw || g_fpbStudio.count != count) {
+		if (!skeeto_fpb::LoadStudio(raw, count, g_fpbStudio)) {
+			original(self, results, info, bones, flex, delayed, origin, flags);
+			return;
+		}
+		g_fpbTrack.Reset();
+	}
+	bool changed = false;
+	float shift[3]{};
+	skeeto_fpb::dynamic::CameraPose cam{};
+	const bool haveCam = FpbSampleLiveCamera(cam);
+	if (wantDynamic && haveCam) {
+		const auto rig = skeeto_fpb::dynamic::DiscoverRig(g_fpbStudio, g_fpb.fallbackEyeHeight);
+		const auto* mod = skeeto_fpb::FindProfile(g_fpbProfiles, g_fpbStudio.modelName, g_fpbStudio.checksum);
+		const auto resolved = skeeto_fpb::dynamic::Compute(
+			g_fpbStudio, rig, temp, cam, g_fpb, mod, g_fpbCamEpoch, GetTickCount64(), g_fpbTrack);
+		if (resolved.ok && rig.anchor >= 0 && rig.anchor < count) {
+			const auto pivot = skeeto_fpb::dynamic::Location(temp[rig.anchor]);
+			if (skeeto_fpb::dynamic::Transform(temp, count, pivot, resolved.translation, resolved.yawRadians)) {
+				shift[0] = resolved.translation.x;
+				shift[1] = resolved.translation.y;
+				shift[2] = resolved.translation.z;
+				changed = true;
+			}
+		}
+	}
+	if (!changed && wantOffset) {
+		if (haveCam && skeeto_fpb::dynamic::ManualOffset(cam, g_fpb.forward, g_fpb.right, g_fpb.up, shift)) {
+			skeeto_fpb::ApplyOffset(temp, count, shift);
+			changed = true;
+		}
+	}
+	if (wantParts) {
+		skeeto_fpb::ApplyParts(temp, count, g_fpbStudio.plan, g_fpb.hideHead, g_fpb.hideArms);
+		changed = true;
+	}
+	float adjOrigin[3] = { origin[0], origin[1], origin[2] };
+	if (changed && (shift[0] != 0.f || shift[1] != 0.f || shift[2] != 0.f)) {
+		adjOrigin[0] += shift[0];
+		adjOrigin[1] += shift[1];
+		adjOrigin[2] += shift[2];
+	}
+	original(self, results, info, changed ? temp : bones, flex, delayed, changed ? adjOrigin : origin, flags);
+}
+static void FpbSetGate(bool enable) {
+	if (GetCurrentThreadId() != g_paintTid) return;
+	if (!enable) {
+		if (!g_fpbGateOpen) return;
+		skeeto_local_draw::Release(skeeto_local_draw::Owner::Fpb, g_paintTid, AfkWrite, IsExec);
+		g_fpbGateOpen = false;
+		return;
+	}
+	if (g_fpbGateOpen) return;
+	if (skeeto_local_draw::Acquire(skeeto_local_draw::Owner::Fpb, g_paintTid, AfkWrite, IsExec))
+		g_fpbGateOpen = true;
+}
+static void FpbEndSession() {
+	g_fpbDecorate = false;
+	g_fpbLocalEnt = nullptr;
+	g_fpbWorldBody = false;
+	g_fpbStudio = {};
+	g_fpbTrack.Reset();
+	g_fpbViewLatch.Reset();
+	g_fpbCamTransition.Reset();
+	g_fpbViewMode = skeeto_fpb::viewcompat::Mode::Unknown;
+	g_fpbViewHoriz = g_fpbViewEyeZ = -1.f;
+	g_fpbShoulderCached = -1;
+	g_fpbCamEpoch++;
+	std::snprintf(g_fpbStatus, sizeof(g_fpbStatus), "关闭：原生可见性保持不变");
+	FpbSetGate(false);
+	FpbRemoveStudioHook();
+}
+static void FpbPaintPump() {
+	if (GetCurrentThreadId() != g_paintTid) return;
+	if (!FpbWanted() || !FreeCamSceneReady()) {
+		g_fpbDecorate = false;
+		g_fpbLocalEnt = nullptr;
+		g_fpbWorldBody = false;
+		if (g_fpbGateOpen) FpbSetGate(false);
+		if (!FpbWanted()) {
+			g_fpbStudio = {};
+			g_fpbTrack.Reset();
+			g_fpbViewLatch.Reset();
+			g_fpbCamTransition.Reset();
+			if (g_fpbStudioHooked) FpbRemoveStudioHook();
+			std::snprintf(g_fpbStatus, sizeof(g_fpbStatus), "关闭：原生可见性保持不变");
+		} else {
+			std::snprintf(g_fpbStatus, sizeof(g_fpbStatus), "等待有效游戏场景");
+		}
+		return;
+	}
+	if (g_fpbCamTransition.Update(g_freeCamFlying))
+		g_fpbViewLatch.Reset();
+	const int localIdx = g_dbgLocalEnt.load(std::memory_order_relaxed);
+	const int life = g_dbgLifeState.load(std::memory_order_relaxed);
+	const int team = g_dbgLocalTeam.load(std::memory_order_relaxed);
+	const int obs = g_dbgObsMode.load(std::memory_order_relaxed);
+	void* ent = (localIdx > 0) ? EntGet(localIdx) : nullptr;
+	const bool aliveSurvivor = ent && team == 2 && life == 0 && obs <= 0;
+	if (!aliveSurvivor) {
+		g_fpbDecorate = false;
+		g_fpbLocalEnt = nullptr;
+		g_fpbWorldBody = false;
+		FpbSetGate(false);
+		std::snprintf(g_fpbStatus, sizeof(g_fpbStatus), "非正常存活本机求生者：不修改原生绘制");
+		return;
+	}
+	const bool shoulderOn = FpbShoulderThirdPerson();
+	g_fpbShoulderCached = shoulderOn ? 1 : 0;
+	const std::optional<bool> shoulder = shoulderOn;
+	const auto bodyMode = skeeto_fpb::freecamerabody::Choose(
+		g_freeCamFlying, g_fpb.thirdPersonCompat, shoulder);
+	if (bodyMode == skeeto_fpb::freecamerabody::Mode::NativeThirdPerson) {
+		g_fpbDecorate = false;
+		g_fpbLocalEnt = nullptr;
+		g_fpbWorldBody = false;
+		FpbSetGate(false);
+		std::snprintf(g_fpbStatus, sizeof(g_fpbStatus), "FreeCamera：原生第三人称绘制");
+		return;
+	}
+	if (bodyMode == skeeto_fpb::freecamerabody::Mode::NormalView && g_fpb.thirdPersonCompat) {
+		skeeto_fpb::dynamic::CameraPose cam{};
+		float origin[3]{};
+		const bool haveCam = FpbSampleLiveCamera(cam);
+		const bool haveOrigin = g_offOrigin >= 0 && g_offOrigin <= 0x4000
+			&& EntReadBlock(ent, g_offOrigin, origin, sizeof(origin));
+		skeeto_fpb::viewcompat::Observation evidence{};
+		if (haveCam && haveOrigin)
+			evidence = skeeto_fpb::viewcompat::Classify(cam, origin, shoulder);
+		if (haveCam && shoulderOn) evidence.evidence = skeeto_fpb::viewcompat::Mode::Third;
+		g_fpbViewHoriz = evidence.horizontal;
+		g_fpbViewEyeZ = evidence.eyeHeight;
+		g_fpbViewMode = g_fpbViewLatch.Update(evidence.evidence, GetTickCount64(), g_fpbCamEpoch);
+		if (g_fpbViewMode != skeeto_fpb::viewcompat::Mode::First) {
+			g_fpbDecorate = false;
+			g_fpbLocalEnt = nullptr;
+			g_fpbWorldBody = false;
+			FpbSetGate(false);
+			std::snprintf(g_fpbStatus, sizeof(g_fpbStatus),
+				g_fpbViewMode == skeeto_fpb::viewcompat::Mode::Third
+					? "第三人称：恢复原生模型" : "视角未确认：保持原生模型");
+			return;
+		}
+	} else if (g_fpbViewMode != skeeto_fpb::viewcompat::Mode::Unknown) {
+		g_fpbViewLatch.Reset();
+		g_fpbViewMode = skeeto_fpb::viewcompat::Mode::Unknown;
+		g_fpbViewHoriz = g_fpbViewEyeZ = -1.f;
+	}
+	FpbInstallStudioHook();
+	g_fpbLocalEnt = ent;
+	g_fpbDecorate = true;
+	g_fpbWorldBody = (bodyMode == skeeto_fpb::freecamerabody::Mode::WorldAnchored);
+	FpbSetGate(true);
+	std::snprintf(g_fpbStatus, sizeof(g_fpbStatus),
+		g_fpbWorldBody ? "FreeCamera：本机模型保留世界原位（原生骨骼）"
+			: "本机原生 DrawModel 分支已放行");
+}
+
 static void FreeCamApplyCreateMove(void* command) {
 	if (!command || !FreeCamReadable(command, sizeof(FreeCamCmd))) return;
 	FreeCamCmd* cmd = (FreeCamCmd*)command;
@@ -59915,17 +60618,21 @@ static void FreeCamPaintPump() {
 	const bool wanted = FreeCamWanted();
 	const bool inScene = FreeCamSceneReady();
 	const bool shouldPause = g_menuVisible || EngGameUiVisible() || !inScene;
-	if (g_freeCamPaused != shouldPause) {
+	if (wanted && g_freeCamPaused != shouldPause) {
 		g_freeCamPaused = shouldPause;
 		if (shouldPause) FreeCamHaltMotion();
 	}
 	// Flight must not survive disconnect / loading / map-enter. Leaving it armed
 	// rewrites the next session's CViewSetup with the previous map's free-cam pose.
-	if (!inScene) FreeCamEndSession();
-	if (!wanted) {
+	if (!inScene && (g_freeCamFlying || g_freeCamDrawOpen || g_freeCam.ready || g_freeCamHaveAim))
 		FreeCamEndSession();
-		FreeCamUnhookView();
-		FreeCamUnhookVm();
+	if (!wanted) {
+		if (g_freeCamFlying || g_freeCamDrawOpen || g_freeCam.ready || g_freeCamHaveAim
+			|| g_freeCamViewHooked || g_freeCamVmHooked) {
+			FreeCamEndSession();
+			FreeCamUnhookView();
+			FreeCamUnhookVm();
+		}
 		g_freeCamState = FreeCamState::Off;
 		return;
 	}
@@ -66492,17 +67199,88 @@ static bool CheckpointTankReadPos(int id, void** outEnt, float* outPos) {
 	return true;
 }
 
+// Checkpoint totals do not name which Tank was hit. With several alive, pick by
+// locked HP bar, then nearest recent impact, then aim cone — never "first index".
 static int CheckpointFindAliveTank(void** outEnt, float* outPos) {
 	if (outEnt) *outEnt = nullptr;
-	if (CheckpointTankReadPos(g_ckptTankCachedId, outEnt, outPos))
-		return g_ckptTankCachedId;
-	for (int i = 1; i <= 32; ++i) {
-		if (!CheckpointTankReadPos(i, outEnt, outPos)) continue;
-		g_ckptTankCachedId = i;
-		return i;
+	int ids[8]{};
+	void* ents[8]{};
+	float poss[8][3]{};
+	int n = 0;
+	for (int i = 1; i <= 32 && n < 8; ++i) {
+		if (!CheckpointTankReadPos(i, &ents[n], poss[n])) continue;
+		ids[n++] = i;
 	}
-	g_ckptTankCachedId = 0;
-	return 0;
+	if (n <= 0) {
+		g_ckptTankCachedId = 0;
+		return 0;
+	}
+	int pick = 0;
+	if (n > 1) {
+		bool chose = false;
+		if (g_hpLocalSiEnt > 0) {
+			for (int i = 0; i < n; ++i) {
+				if (ids[i] != g_hpLocalSiEnt) continue;
+				pick = i;
+				chose = true;
+				break;
+			}
+		}
+		if (!chose && g_haveImpactPos) {
+			const DWORD gunAt = g_lastLocalGunImpactAt.load(std::memory_order_relaxed);
+			const DWORD nowImp = GetTickCount();
+			// Stale bullet_impact must not outrank aim cone across multi-Tank fights.
+			if (gunAt && nowImp - gunAt < 750u) {
+				float best = 1e30f;
+				for (int i = 0; i < n; ++i) {
+					const float dx = poss[i][0] - g_lastImpactPos[0];
+					const float dy = poss[i][1] - g_lastImpactPos[1];
+					const float dz = poss[i][2] + 40.f - g_lastImpactPos[2];
+					const float d2 = dx * dx + dy * dy + dz * dz;
+					if (d2 < best) { best = d2; pick = i; chose = true; }
+				}
+			}
+		}
+		if (!chose) {
+			float eye[3]{};
+			float forward[3]{};
+			float bestScore = -1e30f;
+			if (LocalEyePos(eye)) {
+				float angles[3]{};
+				EngGetViewAngles(angles);
+				AngleVectors(angles[0], angles[1], forward);
+				for (int i = 0; i < n; ++i) {
+					const float dx = poss[i][0] - eye[0];
+					const float dy = poss[i][1] - eye[1];
+					const float dz = poss[i][2] + 40.f - eye[2];
+					const float len = sqrtf(dx * dx + dy * dy + dz * dz);
+					float score = 0.f;
+					if (len > 1.f)
+						score = (dx * forward[0] + dy * forward[1] + dz * forward[2]) / len;
+					if (!chose || score > bestScore) {
+						bestScore = score;
+						pick = i;
+						chose = true;
+					}
+				}
+			}
+			if (!chose) {
+				for (int i = 0; i < n; ++i) {
+					if (ids[i] != g_ckptTankCachedId) continue;
+					pick = i;
+					break;
+				}
+			}
+		}
+	}
+	g_ckptTankCachedId = ids[pick];
+	if (outEnt) *outEnt = ents[pick];
+	if (outPos) {
+		outPos[0] = poss[pick][0];
+		outPos[1] = poss[pick][1];
+		outPos[2] = poss[pick][2];
+	}
+	return ids[pick];
 }
 
 // O(1)/O(8): cached Trace id, then g_witchId slots. Never scan EntHighestIndex here.
@@ -69722,9 +70500,11 @@ static DWORD WINAPI MainThread(LPVOID) {
 	if (!SktModuleRoot(g_self, false, bootRoot)) { g_run = false; SktBootstrapMark(SKT_BOOT_FAILED); return 0; }
 	SktProbe(bootRoot, "core", "worker-start");
 	SktJoinPath(bootRoot, L"left4dead2\\skeeto\\viewmodel\\profiles.ini", g_vmPath);
+	SktJoinPath(bootRoot, L"left4dead2\\skeeto\\fpb\\profiles.ini", g_fpbPath);
 	EscUiConfigStartupLoad(bootRoot); // Win32-only, before ready; missing document creates no directory.
 	ResolveGameDir();
 	LoadSettings(); // Read the saved startup policy before native Necola can run.
+	FpbLoadProfiles(); // Per-MOD body calibration; independent of skeeto_setting.ini.
 	g_necolaCmdOverride = CmdLineOverride01(L"-skeeto_necola");
 	g_pluginPlatformCmdOverride = CmdLineOverride01(L"-skeeto_plugin_platform");
 	const bool necolaAtLaunch = LaunchOverrideEnabled(g_necolaCmdOverride, g_optNecolaAutoload);

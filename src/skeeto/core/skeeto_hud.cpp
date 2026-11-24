@@ -20,6 +20,9 @@ WorldNoticeState g_worldFfNotice{};
 WorldNoticeState g_worldWitchNotice{};
 WorldNoticeState g_worldTankNotice{};
 WorldNoticeState g_worldRescueNotice{};
+// Kill-credit fallback while BossDmg settle picks the top damage contributor.
+static int g_worldWitchTrophyFallback = 0;
+static int g_worldTankTrophyFallback = 0;
 WorldInfectedNoticeState g_worldMeleeSkeetNotice{};
 WorldInfectedNoticeState g_worldLevelNotice{};
 WorldInfectedNoticeState g_worldSkeetNotice{};
@@ -1175,8 +1178,13 @@ const wchar_t* TeamHudNameCacheFind(int ent, int userid) {
 	for (int i = 0; i < g_teamHudNameCacheN; ++i) {
 		if (userid > 0 && g_teamHudNameCache[i].userid == userid && g_teamHudNameCache[i].fromPlayer)
 			return g_teamHudNameCache[i].name;
-		if (ent > 0 && g_teamHudNameCache[i].ent == ent && g_teamHudNameCache[i].fromPlayer)
+		if (ent > 0 && g_teamHudNameCache[i].ent == ent && g_teamHudNameCache[i].fromPlayer) {
+			// Same pawn index can be reused by another userid after idle/takeover.
+			if (userid > 0 && g_teamHudNameCache[i].userid > 0
+				&& g_teamHudNameCache[i].userid != userid)
+				continue;
 			return g_teamHudNameCache[i].name;
+		}
 	}
 	return nullptr;
 }
@@ -1204,21 +1212,33 @@ void TeamHudNameCachePut(int ent, int userid, const wchar_t* name, bool fromPlay
 }
 
 const wchar_t* TeamHudIdleNameForBot(int ent, int userid) {
+	const int liveHu = ent > 0 ? SkeetoIdleHumanUserIdForBot(ent) : 0;
 	for (int i = 0; i < kTeamHudMax; ++i) {
 		TeamHudIdleLink& link = g_teamHudIdleLinks[i];
-		if (!((userid > 0 && link.botUserId == userid) || (ent > 0 && link.botEnt == ent)))
+		const bool uidMatch = userid > 0 && link.botUserId == userid;
+		const bool entMatch = ent > 0 && link.botEnt == ent;
+		if (!uidMatch && !entMatch) continue;
+		// Entity slot reuse: same botEnt, different bot userid — drop stale link.
+		if (entMatch && userid > 0 && link.botUserId > 0 && link.botUserId != userid) {
+			link = {};
 			continue;
-		int humanEnt = link.playerEnt;
-		if (humanEnt <= 0) humanEnt = EngPlayerForUserID(link.playerUserId);
+		}
+		// Netvar human disagrees with the stored idle owner.
+		if (liveHu > 0 && link.playerUserId > 0 && liveHu != link.playerUserId) {
+			link = {};
+			continue;
+		}
+		if (ent > 0) link.botEnt = ent;
+		if (userid > 0) link.botUserId = userid;
+		if (liveHu > 0) link.playerUserId = liveHu;
+		int humanEnt = EngPlayerForUserID(link.playerUserId);
 		PlayerInfo pi{};
 		if (humanEnt > 0 && EngPlayerInfo(humanEnt, &pi)
-			&& pi.userid == link.playerUserId && !PlayerInfoIsBot(pi)) {
+			&& pi.userid == link.playerUserId && !PlayerInfoIsBot(pi) && pi.name[0]) {
 			link.playerEnt = humanEnt;
-			if (!link.playerName[0] && pi.name[0]) {
-				MultiByteToWideChar(CP_UTF8, 0, pi.name, -1, link.playerName, 24);
-				link.playerName[23] = 0;
-			}
-			return link.playerName[0] ? link.playerName : nullptr;
+			MultiByteToWideChar(CP_UTF8, 0, pi.name, -1, link.playerName, 24);
+			link.playerName[23] = 0;
+			return link.playerName;
 		}
 		// Keep the captured human name while the idle body is still linked.
 		if (link.playerName[0]) return link.playerName;
@@ -1246,7 +1266,8 @@ static void TeamHudSeedIdleLink(int playerUserId, int botUserId) {
 	int slot = -1;
 	for (int i = 0; i < kTeamHudMax; ++i) {
 		if (g_teamHudIdleLinks[i].playerUserId == playerUserId
-			|| g_teamHudIdleLinks[i].botUserId == botUserId) {
+			|| g_teamHudIdleLinks[i].botUserId == botUserId
+			|| (botEnt > 0 && g_teamHudIdleLinks[i].botEnt == botEnt)) {
 			slot = i;
 			break;
 		}
@@ -1262,18 +1283,20 @@ static void TeamHudSeedIdleLink(int playerUserId, int botUserId) {
 	link.botEnt = botEnt;
 	link.born = GetTickCount();
 	PlayerInfo pi{};
-	if (playerEnt > 0 && EngPlayerInfo(playerEnt, &pi) && pi.name[0]) {
+	// Require the resolved pawn to still be that human — never copy a BOT/local body name.
+	if (playerEnt > 0 && EngPlayerInfo(playerEnt, &pi)
+		&& pi.userid == playerUserId && !PlayerInfoIsBot(pi) && pi.name[0]) {
 		MultiByteToWideChar(CP_UTF8, 0, pi.name, -1, link.playerName, 24);
 		link.playerName[23] = 0;
 	}
 	if (!link.playerName[0]) {
-		const wchar_t* cached = TeamHudNameCacheFind(playerEnt, playerUserId);
+		const wchar_t* cached = TeamHudNameCacheFind(0, playerUserId);
 		if (cached) wcscpy_s(link.playerName, 24, cached);
 	}
 }
 
 void TeamHudOnBotSwap(const char* eventName, int playerUserId, int botUserId) {
-	// World nameplates reuse TeamHudApplyName; record idle links for either consumer.
+	// Name HUDs share ApplyName; keep links when either consumer is wanted.
 	if (!g_optTeamHud && !TeamWorldNamesWanted()) return;
 	if (!eventName || playerUserId <= 0 || botUserId <= 0) return;
 	const bool takeover = eventName[0] == 'b';
@@ -3296,6 +3319,8 @@ void WorldNoticeClear() {
 	g_worldCrownNotice = {};
 	g_worldTankSlayerNotice = {};
 	g_worldCrownKind = 0;
+	g_worldWitchTrophyFallback = 0;
+	g_worldTankTrophyFallback = 0;
 	memset(g_worldBileNotices, 0, sizeof(g_worldBileNotices));
 	g_worldBileAnyActive = false;
 	memset(g_worldWitchStartleNotice, 0, sizeof(g_worldWitchStartleNotice));
@@ -3770,11 +3795,9 @@ void WorldNoticeOnWitchKilled(void* ev) {
 	int killerUid = EvInt(ev, "userid");
 	if (killerUid <= 0) killerUid = EvInt(ev, "attacker");
 	const int killer = killerUid > 0 ? EngPlayerForUserID(killerUid) : 0;
-	if (!WorldNoticeSurvivorEnt(killer)) return;
-	const DWORD now = GetTickCount();
-	g_worldWitchNotice.ent = killer;
-	g_worldWitchNotice.born = now;
-	g_worldWitchNotice.until = now + 5000u;
+	g_worldWitchTrophyFallback = WorldNoticeSurvivorEnt(killer) ? killer : 0;
+	// Arm after the same settle window as BossDmgBoard (top damage, not kill credit).
+	BossDmgBoardOnWitchKilled();
 }
 
 void WorldNoticeOnTankKilled(void* ev) {
@@ -3784,11 +3807,8 @@ void WorldNoticeOnTankKilled(void* ev) {
 	int killerUid = EvInt(ev, "attacker");
 	if (killerUid <= 0) killerUid = EvInt(ev, "userid");
 	const int killer = killerUid > 0 ? EngPlayerForUserID(killerUid) : 0;
-	if (!WorldNoticeSurvivorEnt(killer)) return;
-	const DWORD now = GetTickCount();
-	g_worldTankNotice.ent = killer;
-	g_worldTankNotice.born = now;
-	g_worldTankNotice.until = now + 5000u;
+	g_worldTankTrophyFallback = WorldNoticeSurvivorEnt(killer) ? killer : 0;
+	BossDmgBoardOnTankKilled();
 }
 
 void WorldNoticeOnTankSlayer(void* ev) {
@@ -4317,6 +4337,8 @@ void WorldNoticeDrawBlackWhite(int cx, int cy, int alpha, int scalePct) {
 			p(1), 255, 52, 46, a);
 }
 
+static void BossDmgBoardPump(DWORD now);
+
 void WorldNoticePaint() {
 	if ((!g_optWorldFriendlyFire && !g_optWorldWitchKill && !g_optWorldTankKill
 		&& !g_optWorldRescue && !g_optWorldMeleeSkeet && !g_optWorldLevel
@@ -4326,6 +4348,9 @@ void WorldNoticePaint() {
 		&& !g_optWorldTankSlayer && !g_optWorldWitchStartle) || !SkeetoFeaturesOn()) return;
 	if (!g_engine || !EngInGame() || EngDrawingLoading() || g_hudPostMissionQuiet) return;
 	const DWORD now = GetTickCount();
+	// Trophy options keep BossDmg baseline/settle alive even when the board HUD is off.
+	if (g_optWorldTankKill || g_optWorldWitchKill)
+		BossDmgBoardPump(now);
 	WorldNoticeControlTick();
 	if (g_worldFfNotice.until && now >= g_worldFfNotice.until) g_worldFfNotice = {};
 	if (g_worldWitchNotice.until && now >= g_worldWitchNotice.until) g_worldWitchNotice = {};
@@ -6315,6 +6340,7 @@ struct BossDmgSlot {
 };
 struct BossDmgRow {
 	wchar_t name[32];
+	int ent;
 	int damage;
 	bool local;
 };
@@ -6373,16 +6399,23 @@ static DWORD BossDmgStamp() {
 	return now ? now : 1u;
 }
 
+static bool BossDmgTrackingWanted() {
+	return g_optBossDmgBoardHud || g_optWorldTankKill || g_optWorldWitchKill;
+}
+
 void BossDmgBoardOnTankKilled() {
-	if (g_optBossDmgBoardHud) g_bossDmgTankKillAt.store(BossDmgStamp(), std::memory_order_relaxed);
+	if (g_optBossDmgBoardHud || g_optWorldTankKill)
+		g_bossDmgTankKillAt.store(BossDmgStamp(), std::memory_order_relaxed);
 }
 
 void BossDmgBoardOnWitchKilled() {
-	if (g_optBossDmgBoardHud) g_bossDmgWitchKillAt.store(BossDmgStamp(), std::memory_order_relaxed);
+	if (g_optBossDmgBoardHud || g_optWorldWitchKill)
+		g_bossDmgWitchKillAt.store(BossDmgStamp(), std::memory_order_relaxed);
 }
 
 void BossDmgBoardOnRoundStart() {
-	if (g_optBossDmgBoardHud) g_bossDmgRoundStartAt.store(BossDmgStamp(), std::memory_order_relaxed);
+	if (BossDmgTrackingWanted())
+		g_bossDmgRoundStartAt.store(BossDmgStamp(), std::memory_order_relaxed);
 }
 
 // Reads one survivor's checkpoint totals. Returns false when the slot is not a
@@ -6417,8 +6450,22 @@ static void BossDmgCaptureBaseline() {
 	g_bossDmgBaseValid = true;
 }
 
+static void WorldNoticeArmBossTrophy(bool tank, int topEnt, int fallback) {
+	WorldNoticeState& notice = tank ? g_worldTankNotice : g_worldWitchNotice;
+	int chosen = WorldNoticeSurvivorEnt(topEnt) ? topEnt : 0;
+	if (!chosen && WorldNoticeSurvivorEnt(fallback)) chosen = fallback;
+	if (tank) g_worldTankTrophyFallback = 0;
+	else g_worldWitchTrophyFallback = 0;
+	if (!chosen) return;
+	const DWORD now = GetTickCount();
+	notice.ent = chosen;
+	notice.born = now;
+	notice.until = now + 5000u;
+}
+
 // Deltas since the last baseline for the boss that just died, then prev = current.
-static void BossDmgBuildBoard(bool tank, DWORD now) {
+// Returns the highest-damage survivor ent (0 if none); optionally fills the board HUD.
+static int BossDmgBuildBoard(bool tank, DWORD now, bool fillBoard) {
 	BossDmgRow all[32]{};
 	int total = 0;
 	const int local = EngLocal();
@@ -6437,6 +6484,7 @@ static void BossDmgBuildBoard(bool tank, DWORD now) {
 		if (tank) prev.tank = cur; else prev.witch = cur;
 		if (delta <= 0) continue;
 		BossDmgRow& row = all[total++];
+		row.ent = ent;
 		NewHudPlayerName(ent, row.name, (int)_countof(row.name));
 		if (!row.name[0])
 			wcsncpy_s(row.name, UiText(UiId::TankTargetHudFallbackName, L"队友"), _TRUNCATE);
@@ -6451,17 +6499,29 @@ static void BossDmgBuildBoard(bool tank, DWORD now) {
 		for (; j >= 0 && all[j].damage < key.damage; --j) all[j + 1] = all[j];
 		all[j + 1] = key;
 	}
-	if (total > kBossDmgBoardMaxRows) total = kBossDmgBoardMaxRows;
-	if (total <= 0) return;
-	memset(g_bossDmgRows, 0, sizeof(g_bossDmgRows));
-	memcpy(g_bossDmgRows, all, sizeof(BossDmgRow) * total);
-	g_bossDmgRowCount = total;
-	g_bossDmgRowsTank = tank;
-	g_bossDmgRowsUntil = now + kBossDmgBoardShowMs;
+	// World trophies skip the local pawn (same as other world notices).
+	int topEnt = 0;
+	for (int i = 0; i < total; ++i) {
+		if (!WorldNoticeSurvivorEnt(all[i].ent)) continue;
+		topEnt = all[i].ent;
+		break;
+	}
+	if (fillBoard) {
+		int boardN = total;
+		if (boardN > kBossDmgBoardMaxRows) boardN = kBossDmgBoardMaxRows;
+		if (boardN > 0) {
+			memset(g_bossDmgRows, 0, sizeof(g_bossDmgRows));
+			memcpy(g_bossDmgRows, all, sizeof(BossDmgRow) * boardN);
+			g_bossDmgRowCount = boardN;
+			g_bossDmgRowsTank = tank;
+			g_bossDmgRowsUntil = now + kBossDmgBoardShowMs;
+		}
+	}
+	return topEnt;
 }
 
 static void BossDmgBoardPump(DWORD now) {
-	if (!g_optBossDmgBoardHud || !g_engine || !EngInGame() || EngDrawingLoading()) {
+	if (!BossDmgTrackingWanted() || !g_engine || !EngInGame() || EngDrawingLoading()) {
 		if (g_bossDmgBaseValid || g_bossDmgRowCount) BossDmgBoardClear();
 		return;
 	}
@@ -6473,6 +6533,8 @@ static void BossDmgBoardPump(DWORD now) {
 		g_bossDmgRowsUntil = 0;
 		g_bossDmgTankKillAt.store(0, std::memory_order_relaxed);
 		g_bossDmgWitchKillAt.store(0, std::memory_order_relaxed);
+		g_worldTankTrophyFallback = 0;
+		g_worldWitchTrophyFallback = 0;
 		g_bossDmgBaseNotBefore = now + 1500u;
 	}
 	if (!g_bossDmgBaseValid) {
@@ -6484,14 +6546,22 @@ static void BossDmgBoardPump(DWORD now) {
 		return;
 	}
 	for (int pass = 0; pass < 2; ++pass) {
-		std::atomic<DWORD>& stamp = pass == 0 ? g_bossDmgTankKillAt : g_bossDmgWitchKillAt;
+		const bool tank = pass == 0;
+		std::atomic<DWORD>& stamp = tank ? g_bossDmgTankKillAt : g_bossDmgWitchKillAt;
 		const DWORD at = stamp.load(std::memory_order_relaxed);
 		if (!at) continue;
 		const LONG age = (LONG)(now - at);
 		if (age < (LONG)kBossDmgBoardSettleMs) continue;
 		stamp.store(0, std::memory_order_relaxed);
 		if (age > 5000) continue; // Paint was hidden for a while; skip stale kills
-		BossDmgBuildBoard(pass == 0, now);
+		const bool wantBoard = g_optBossDmgBoardHud;
+		const bool wantTrophy = tank ? g_optWorldTankKill : g_optWorldWitchKill;
+		if (!wantBoard && !wantTrophy) continue;
+		const int topEnt = BossDmgBuildBoard(tank, now, wantBoard);
+		if (wantTrophy) {
+			const int fallback = tank ? g_worldTankTrophyFallback : g_worldWitchTrophyFallback;
+			WorldNoticeArmBossTrophy(tank, topEnt, fallback);
+		}
 	}
 }
 

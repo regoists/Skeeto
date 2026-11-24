@@ -82,6 +82,7 @@ This table is the single maintained place for file responsibilities and search e
 | Damage-event classification strategy | `core/skeeto_damage_events.h` | `skeeto_damage::*` |
 | Third-person aim correction (Skeetoscript) | `core/skeeto_proxy.cpp`, `core/skeeto_tps_aim_aac.h` | `TpsAim*` |
 | Free camera (Combat / Visual) | `core/skeeto_proxy.cpp`, `core/skeeto_freecam.h` | `FreeCam*` |
+| First-person body / Lux Advanced (SkeetoScript) | `core/skeeto_proxy.cpp`, `core/skeeto_fpb.h`, `core/skeeto_fpb_dynamic.h`, `core/skeeto_fpb_viewcompat.h`, `core/skeeto_local_draw_gate.h` (DrawModel gate + Studio[25]; dynamic anchor; viewcompat latch; FreeCam world-anchored body; per-MOD profiles; never TerrorPlayer Build / 0x6c0) | `Fpb*` |
 | Hold-to-fire for semi-autos (Skeetoscript) | `core/skeeto_proxy.cpp` | `ClientUxHoldSemiPump` |
 | Anti-crash patch integration | `core/skeeto_proxy.cpp` | `CrashGuard*` |
 | Cache offload and reclaim | `core/skeeto_cache_offload.cpp/.h`, `core/skeeto_cache_protocol.h`, `cache_host/skeeto_cache_host.cpp` | `skeeto_cache::StartWorker / Pump / RequestReclaim / StopWorker` |

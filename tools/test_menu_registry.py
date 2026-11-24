@@ -233,7 +233,7 @@ assert "if (g_menuSub == 1)" in PROXY.split("menuPaintHitFeedback = [&]() -> boo
 assert "if (g_menuPage != kMenuPageHitFeedback) return;" in PROXY
 
 script_item_count = initializer_count(script_items)
-assert script_item_count == 25
+assert script_item_count == 26
 assert "SkeetoScriptMenuPageCount()" in PROXY
 assert "SkeetoScriptMenuLabel(0, 1" in PROXY and "SkeetoScriptMenuLabel(1, 6" in PROXY
 assert "SkeetoScriptMenuLabel(1, 7" in PROXY
@@ -243,6 +243,7 @@ assert "item->action == SkeetoScriptMenuAction::OpenCampaignCompletion" in PROXY
 assert "SkeetoScriptMenuAction::OpenBackItems, kMenuPageBackItems" in script_items
 assert "SkeetoScriptMenuAction::OpenAlarmCarGlow, kMenuPageAlarmCarGlow" in script_items
 assert "SkeetoScriptMenuAction::OpenClientPerf, kMenuPageClientPerf" in script_items
+assert "SkeetoScriptMenuAction::OpenFpb, kMenuPageFpb" in script_items
 assert "item->action == SkeetoScriptMenuAction::OpenBackItems" in PROXY
 assert "SkeetoScriptMenuAction::OpenParry, kMenuPageParryFlash" in script_items
 assert "OpenGunFeel" not in script_items
