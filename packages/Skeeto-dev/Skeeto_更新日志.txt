@@ -26,7 +26,7 @@ Then extract all contents of the new package into the game's root directory. If 
 - 队友血条/世界名在闲置 BOT 上更稳定显示「闲置：真人名」（bot userid / 旁观字段校验，实体槽复用不再串名；闲置映射不依赖 HUD 开关）。
 - 多 Tank 时伤害数字归因：优先锁定中的血条 Tank，再按近期弹着点与瞄准锥选择，避免固定缓存/最低编号挂错目标。
 - 自由镜头飞行中退回主菜单或换服时，可能因旧视角写入导致的闪退。
-- TAB / 章节统计 Steam 头像改为与主菜单相同的 steam_api 直连：只取中/小图、Paint 每拍最多拉 1 人并上传 1 张；按 TAB 不再同步请求 Steam（消除卡顿）；后台慢预取，未就绪仍显示「？」。
+- TAB / 章节统计 Steam 头像对齐 L4N（left4neko）：走引擎 GetSteamAPIContext，RequestUserInformation 仍在拉取则下帧再试，再 GetMediumFriendAvatar 取 64 图。修后进玩家一直「？」（此前 flat SteamAPI / Large 路径与 L4N 不一致）。按 TAB 不打 Steam；Paint 每拍最多 1 拉 1 传。
 	Skeeto Core:
 Added:
 - Combat visuals: Free Camera — fly the view while the body stays put (WASD / Space / Ctrl·Shift); off by default. Bind skeeto_freecam or toggle from the settings page.
@@ -37,7 +37,7 @@ Fixed:
 - Team/world idle names more reliable on idle bots (bot userid / spectator-field checks; entity-slot reuse no longer mixes names; idle mapping no longer depends on the HUD switch).
 - Multi-Tank damage-number attribution: prefer the locked health-bar Tank, then recent impact / aim cone, instead of a fixed cache or lowest index.
 - Crash when leaving Free Camera flight to the main menu or joining another server (stale view write).
-- Steam avatars on TAB / chapter stats now use the same steam_api flat path as the main menu: medium/small only, at most one fetch and one upload per Paint tick; TAB key no longer calls Steam synchronously (no hitch); slow background prefetch; "?" until ready.
+- Steam avatars on TAB / chapter stats now follow L4N (left4neko): engine GetSteamAPIContext, retry while RequestUserInformation is pending, then GetMediumFriendAvatar (64px). Fixes late joiners stuck on "?" (flat SteamAPI / Large path did not match L4N). TAB key does not call Steam; Paint does at most one fetch and one upload per tick.
 
 ## 2.2.21（2026-11-21）
 	Skeeto核心：

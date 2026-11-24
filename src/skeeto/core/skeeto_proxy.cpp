@@ -47682,7 +47682,6 @@ static DWORD g_tbHeldAt[2] = {};
 static unsigned int g_tbHeldMask = 0;
 static unsigned int g_tbVanillaMask = 0;
 static unsigned int g_tbSkeetoMask = 0;
-static DWORD g_tbAvRetryAt = 0;
 static bool g_tbVanillaOn = false;
 
 // ---- kill counters (event ingest; only while the board option is on) --------
@@ -47938,64 +47937,43 @@ static void* TabPrEntity() {
 }
 
 // ---- Steam avatars -----------------------------------------------------------
-// Same flat steam_api.dll path as main-menu friends (proven). Never call Steam
-// from TAB/key handlers — Paint fetches at most 1 account and uploads 1 texture
-// per tick; the board draws a placeholder until Ready.
-enum { kTabAvEmpty = 0, kTabAvPending, kTabAvRgba, kTabAvReady, kTabAvNone };
+// Proven path = left4neko.dll player list (SHA256 f6b519b7…8428746d), not flat steam_api:
+//   engine GetSteamAPIContext (v170) → friends@+8, utils@+0xC
+//   RequestUserInformation (friends+0x94): true → retry later; false → GetMedium (+0x8c)
+//   GetImageSize (+0x14) / GetImageRGBA (+0x18) → 64×64 into cache → Surface upload
+// One Paint owner (ChapStatsAvatarPrefetch): 1 Steam poll + 1 upload / 500 ms.
+// TAB/key paths never call Steam. Settle quiet only uploads already-fetched RGBA.
+enum { kTabAvPending = 1, kTabAvRgba, kTabAvReady };
 struct TabAvatar {
 	uint32_t acct;
-	int texPlus1;      // surface texture id + 1 (0 = not created); kept for reuse
+	int texPlus1; // surface id + 1; 0 = not created
 	int w, h;
 	int state;
-	int tries;         // polls since last RequestUserInformation
 	int epoch;
 	DWORD lastUse;
-	DWORD retryAt;     // next image poll
-	DWORD requestAt;   // next allowed RequestUserInformation
+	DWORD retryAt;
 };
-static constexpr int kTabAvMax = 40; // >= 32 player slots + churn
-static constexpr int kTabAvPx = 64;  // medium (or small) — fits TAB/chap faces
-static constexpr DWORD kTabAvPollMs = 1500u;
-static constexpr DWORD kTabAvRequestMs = 10000u;
+static constexpr int kTabAvMax = 40;
+static constexpr int kTabAvPx = 64;
+static constexpr DWORD kTabAvTickMs = 500u;
 static TabAvatar g_tbAv[kTabAvMax];
 static unsigned char g_tbAvRgba[kTabAvMax][kTabAvPx * kTabAvPx * 4];
 static int g_tbSteamUniverse = 0;
 
-struct TabSteamApi {
-	void*(__cdecl* friends)() = nullptr;
-	void*(__cdecl* utils)() = nullptr;
-	bool(__cdecl* request)(void*, uint64_t, bool) = nullptr;
-	int(__cdecl* medium)(void*, uint64_t) = nullptr;
-	int(__cdecl* smallAv)(void*, uint64_t) = nullptr;
-	bool(__cdecl* size)(void*, int, uint32_t*, uint32_t*) = nullptr;
-	bool(__cdecl* rgba)(void*, int, unsigned char*, int) = nullptr;
-	int(__cdecl* universe)(void*) = nullptr;
-	bool bound = false;
-	bool ok = false;
+using TabSteamReqFn = bool(__thiscall*)(void*, uint32_t, uint32_t, bool);
+using TabSteamAvFn = int(__thiscall*)(void*, uint32_t, uint32_t);
+using TabSteamSizeFn = bool(__thiscall*)(void*, int, uint32_t*, uint32_t*);
+using TabSteamRgbaFn = bool(__thiscall*)(void*, int, uint8_t*, int);
+using TabSteamUniFn = int(__thiscall*)(void*);
+struct TabSteamFns {
+	TabSteamReqFn req = nullptr;
+	TabSteamAvFn medium = nullptr;
+	TabSteamSizeFn size = nullptr;
+	TabSteamRgbaFn rgba = nullptr;
+	TabSteamUniFn universe = nullptr;
+	bool ready = false;
 };
-static TabSteamApi g_tabSteam{};
-
-static bool TabSteamBind() {
-	if (g_tabSteam.bound) return g_tabSteam.ok;
-	g_tabSteam.bound = true;
-	HMODULE api = GetModuleHandleW(L"steam_api.dll");
-	if (!api) return false;
-	auto& f = g_tabSteam;
-#define TAB_STEAM_BIND(member, exportName) f.member = (decltype(f.member))GetProcAddress(api, exportName)
-	TAB_STEAM_BIND(friends, "SteamAPI_SteamFriends_v017");
-	TAB_STEAM_BIND(utils, "SteamAPI_SteamUtils_v010");
-	TAB_STEAM_BIND(request, "SteamAPI_ISteamFriends_RequestUserInformation");
-	TAB_STEAM_BIND(medium, "SteamAPI_ISteamFriends_GetMediumFriendAvatar");
-	TAB_STEAM_BIND(smallAv, "SteamAPI_ISteamFriends_GetSmallFriendAvatar");
-	TAB_STEAM_BIND(size, "SteamAPI_ISteamUtils_GetImageSize");
-	TAB_STEAM_BIND(rgba, "SteamAPI_ISteamUtils_GetImageRGBA");
-	TAB_STEAM_BIND(universe, "SteamAPI_ISteamUtils_GetConnectedUniverse");
-#undef TAB_STEAM_BIND
-	if (!f.friends || !f.utils || !f.size || !f.rgba || (!f.medium && !f.smallAv))
-		return false;
-	g_tabSteam.ok = true;
-	return true;
-}
+static TabSteamFns g_tabSteamFns{};
 
 static TabAvatar* TabAvatarFind(uint32_t acct) {
 	if (!acct) return nullptr;
@@ -48022,16 +48000,46 @@ static TabAvatar* TabAvatarAlloc(uint32_t acct, DWORD now) {
 	return &a;
 }
 
-static int TabSteamUniverse() {
+static bool TabSteamIfaces(void** friends, void** utils) {
+	*friends = nullptr;
+	*utils = nullptr;
+	if (!g_engine || !IfaceAlive(g_engine)) return false;
+	using CtxFn = void*(__thiscall*)(void*);
+	auto fn = (CtxFn)VGet(g_engine, 170);
+	if (!fn || !IsExec((void*)fn)) return false;
+	uint8_t* ctx = nullptr;
+	__try { ctx = (uint8_t*)fn(g_engine); }
+	__except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+	if (!ctx || !PtrCommitted(ctx) || !PtrCommitted(ctx + 0xC)) return false;
+	void* fr = *(void**)(ctx + 0x8);
+	void* ut = *(void**)(ctx + 0xC);
+	if (!fr || !ut || !IfaceAlive(fr) || !IfaceAlive(ut)) return false;
+	if (!g_tabSteamFns.ready) {
+		TabSteamFns f{};
+		f.req = (TabSteamReqFn)VGet(fr, 37);
+		f.medium = (TabSteamAvFn)VGet(fr, 35);
+		f.size = (TabSteamSizeFn)VGet(ut, 5);
+		f.rgba = (TabSteamRgbaFn)VGet(ut, 6);
+		f.universe = (TabSteamUniFn)VGet(ut, 2);
+		if (!f.req || !f.medium || !f.size || !f.rgba
+			|| !IsExec((void*)f.req) || !IsExec((void*)f.medium)
+			|| !IsExec((void*)f.size) || !IsExec((void*)f.rgba))
+			return false;
+		f.ready = true;
+		g_tabSteamFns = f;
+	}
+	*friends = fr;
+	*utils = ut;
+	return true;
+}
+
+static int TabSteamUniverse(void* ut) {
 	if (g_tbSteamUniverse >= 1 && g_tbSteamUniverse <= 4) return g_tbSteamUniverse;
 	int u = 1;
-	if (TabSteamBind() && g_tabSteam.universe) {
+	if (g_tabSteamFns.universe && IsExec((void*)g_tabSteamFns.universe)) {
 		__try {
-			void* ut = g_tabSteam.utils();
-			if (ut) {
-				const int got = g_tabSteam.universe(ut);
-				if (got >= 1 && got <= 4) u = got;
-			}
+			const int got = g_tabSteamFns.universe(ut);
+			if (got >= 1 && got <= 4) u = got;
 		} __except (EXCEPTION_EXECUTE_HANDLER) {
 			u = 1;
 		}
@@ -48040,20 +48048,16 @@ static int TabSteamUniverse() {
 	return u;
 }
 
-// 1 = RGBA ready, 0 = still downloading / not ready, -1 = hard failure.
-// Prefer medium (64); fall back to small (32). Never touch large.
-static int TabAvatarFetchOne(uint64_t sid, unsigned char* out, int* w, int* h, bool doRequest) {
-	if (!TabSteamBind()) return -1;
-	auto& f = g_tabSteam;
+// 1 = RGBA ready, 0 = pending, -1 = unavailable. L4N: Request → Medium → Size → RGBA.
+static int TabAvatarFetchOne(void* fr, void* ut, uint32_t acct, int uni,
+	unsigned char* out, int* w, int* h) {
+	const TabSteamFns& f = g_tabSteamFns;
+	if (!f.ready) return -1;
+	const uint32_t sidHi = ((uint32_t)uni << 24) | 0x00100001u; // individual, instance 1
 	__try {
-		void* fr = f.friends();
-		void* ut = f.utils();
-		if (!fr || !ut) return -1;
-		if (doRequest && f.request)
-			f.request(fr, sid, false);
-		int img = 0;
-		if (f.medium) img = f.medium(fr, sid);
-		if (img <= 0 && f.smallAv) img = f.smallAv(fr, sid);
+		if (f.req(fr, acct, sidHi, false))
+			return 0; // Steam still fetching — same as L4N early-out
+		const int img = f.medium(fr, acct, sidHi);
 		if (img <= 0) return 0;
 		uint32_t iw = 0, ih = 0;
 		if (!f.size(ut, img, &iw, &ih) || iw == 0 || ih == 0
@@ -48068,14 +48072,15 @@ static int TabAvatarFetchOne(uint64_t sid, unsigned char* out, int* w, int* h, b
 	}
 }
 
-// At most maxWork Steam polls. Prefer visible TAB rows, then slot 1..32.
-// Call from throttled Paint only — never from TAB/key handlers.
+// Prefer visible TAB rows, then slot 1..32. At most maxWork Steam polls.
 static void TabAvatarFetch(int maxWork) {
 	if (!(g_optTabBoard || g_optChapStats) || !g_engine || !EngInGame() || EngDrawingLoading()) return;
 	if (maxWork < 1) maxWork = 1;
-	if (!TabSteamBind()) return;
+	void* fr = nullptr;
+	void* ut = nullptr;
+	if (!TabSteamIfaces(&fr, &ut)) return;
 	const DWORD now = GetTickCount();
-	const int uni = TabSteamUniverse();
+	const int uni = TabSteamUniverse(ut);
 	int work = 0;
 
 	auto processAcct = [&](uint32_t acct) -> bool {
@@ -48086,38 +48091,16 @@ static void TabAvatarFetch(int maxWork) {
 		if (a->state == kTabAvReady || a->state == kTabAvRgba) return false;
 		if (a->retryAt && (LONG)(now - a->retryAt) < 0) return false;
 		++work;
-		const bool needKick = !a->requestAt
-			|| a->state == kTabAvNone
-			|| (a->state == kTabAvPending && (LONG)(now - a->requestAt) >= 0);
-		if (needKick) {
-			a->requestAt = now + kTabAvRequestMs;
-			a->tries = 0;
-		}
-		const uint64_t sid = (uint64_t)acct | (1ull << 32) | (1ull << 52)
-			| ((uint64_t)uni << 56);
 		int w = 0, h = 0;
-		const int r = TabAvatarFetchOne(sid, g_tbAvRgba[a - g_tbAv], &w, &h, needKick);
+		const int r = TabAvatarFetchOne(fr, ut, acct, uni, g_tbAvRgba[a - g_tbAv], &w, &h);
 		if (r == 1) {
 			a->w = w;
 			a->h = h;
-			a->tries = 0;
 			a->retryAt = 0;
 			a->state = kTabAvRgba;
-		} else if (r == 0) {
-			a->state = kTabAvPending;
-			a->retryAt = now + kTabAvPollMs;
-			++a->tries;
-			// Soft give-up: keep slot, wait for a fresh Request cycle.
-			if (a->tries > 8) {
-				a->state = kTabAvNone;
-				a->tries = 0;
-				a->retryAt = now + kTabAvRequestMs;
-				a->requestAt = now;
-			}
 		} else {
-			a->state = kTabAvNone;
-			a->retryAt = now + kTabAvRequestMs;
-			a->requestAt = now;
+			a->state = kTabAvPending;
+			a->retryAt = now + kTabAvTickMs;
 		}
 		return true;
 	};
@@ -48135,8 +48118,8 @@ static void TabAvatarFetch(int maxWork) {
 	}
 }
 
-static void TabAvatarUploadTick(int budget = 2) {
-	if (!g_surf) return; // keep RGBA avatar data pending until the Paint Surface exists
+static void TabAvatarUploadTick(int budget = 1) {
+	if (!g_surf) return;
 	if (!g_engine || !EngInGame() || EngDrawingLoading()) return;
 	if (budget < 1) budget = 1;
 	for (int i = 0; i < kTabAvMax && budget > 0; ++i) {
@@ -48158,7 +48141,6 @@ static void TabAvatarUploadTick(int budget = 2) {
 	}
 }
 
-// Settle quiet: upload only what Paint already fetched. No Steam burst here.
 static void ChapStatsAvatarFlush() {
 	if (!g_engine || !EngInGame() || EngDrawingLoading()) return;
 	TabAvatarUploadTick(2);
@@ -48953,19 +48935,9 @@ static void TabBoardPaint() {
 	if (!SurfGetScreenSize(&sw, &sh) || sw < 320 || sh < 240) return;
 	const bool icons = !g_tbQuietPaint;
 	TabBoardGather();
-	// Steam only on live Paint (not settle quiet). Prefetch already warms the cache;
-	// while open, at most one poll / 1.5 s so a held TAB never bursts Steam.
-	if (icons) {
-		const DWORD now = GetTickCount();
-		if (!g_tbAvRetryAt || now - g_tbAvRetryAt >= 1500u) {
-			g_tbAvRetryAt = now;
-			bool missing = false;
-			for (int i = 0; i < g_tbRowN && !missing; ++i)
-				if (g_tbRows[i].acct && TabAvatarTex(g_tbRows[i].acct) < 0) missing = true;
-			if (missing) TabAvatarFetch(1);
-		}
-		TabAvatarUploadTick(1);
-	}
+	// Steam polls live in ChapStatsAvatarPrefetch. While the board is drawn,
+	// only finish uploading RGBA that is already in cache (no Steam here).
+	if (icons) TabAvatarUploadTick(1);
 
 	const int rows = g_tbRowN > 0 ? g_tbRowN : 1;
 	const bool twoGroups = g_tbSurvN > 0 && g_tbInfN + g_tbInfMore > 0;
@@ -50980,16 +50952,13 @@ static void ChapStatsOnToggle() {
 	if (g_optChapStats && g_optChapStatsScore) ChapStatsScoreLoad();
 }
 
-// Normal (non-quiet) HUD paint only: the snapshot is drawn during visual quiet,
-// where no texture upload happens, so Steam avatars are cached ahead of time.
-// Also warms the shared TAB cache while either feature is on, so a player who
-// joins mid-match is requested before the board is held open.
-// Background: 1 Steam poll + 1 texture upload every 750 ms while TAB/chapstats on.
+// Sole Steam-avatar driver while TAB / chapter stats are enabled: 1 poll +
+// 1 upload every 500 ms (late joiners get Request→Medium the same way as L4N).
 static DWORD g_csAvAt = 0;
 static void ChapStatsAvatarPrefetch() {
 	if (!(g_optTabBoard || g_optChapStats)) return;
 	const DWORD now = GetTickCount();
-	if (g_csAvAt && (LONG)(now - g_csAvAt) < 750) return;
+	if (g_csAvAt && (LONG)(now - g_csAvAt) < (LONG)kTabAvTickMs) return;
 	g_csAvAt = now;
 	TabAvatarFetch(1);
 	TabAvatarUploadTick(1);
