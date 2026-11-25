@@ -19,7 +19,7 @@ Then extract all contents of the new package into the game's root directory. If 
 	Skeeto核心：
 新增：
 - 战斗增强与视听优化新增「自由镜头」（Free Camera）：镜头与身体脱钩飞行（WASD / Space / Ctrl·Shift），默认关；可在键盘/鼠标绑定 skeeto_freecam，或在设置页立即切换。
-- Vscript 功能客户端化新增「更好的第一人称身体」（Lux's Survivor Legs Advanced）：默认关；藏头/手臂、第三人称兼容、同帧动态锚点与按 MOD 校准（保存在 left4dead2/skeeto/fpb/profiles.ini）。
+- Vscript 功能客户端化新增「更好的第一人称身体」（Lux's Survivor Legs Advanced）：默认关；高度偏移默认 5；藏头/手臂、第三人称兼容、同帧动态锚点与按 MOD 校准（保存在 left4dead2/skeeto/fpb/profiles.ini）。
 修改：
 - Tank / Witch 金色奖杯改为与 Boss 伤害排行相同的 checkpoint 差值：挂在本次贡献最高的队友头上（不画在自己头上；若第一是自己则取下一名可见队友，否则回退击杀者）。
 修复：
@@ -31,10 +31,11 @@ Then extract all contents of the new package into the game's root directory. If 
 - 多 Tank 时伤害数字归因：优先当前血条锁定的 Tank，再按近期近距弹着与准星锥选择，避免挂到场上另一只。
 - 自由镜头飞行中退回主菜单或换服时，可能因旧视角写入导致的闪退。
 - TAB / 章节统计 Steam 头像对齐 L4N（left4neko）：引擎 GetSteamAPIContext → RequestUserInformation → GetMediumFriendAvatar；修后进玩家一直「？」。按 TAB 不打 Steam；Paint 每 500ms 最多 1 拉 1 传。
+- 对齐 2026-11-25 L4D2 小更新后的 client/engine/server/studiorender：物资雷达、第三人称弹道修正、自由镜头/第一人称身体门控、闲置恢复人称、队友头顶原版名控制、加载提速（提前显示/本地等待/异步网格）、外置声音缓存等按新 PE stamp 与代码点重定位。
 	Skeeto Core:
 Added:
 - Combat visuals: Free Camera — fly the view while the body stays put (WASD / Space / Ctrl·Shift); off by default. Bind skeeto_freecam or toggle from the settings page.
-- Skeetoscript: Better first-person body (Lux's Survivor Legs Advanced) — off by default; hide head/arms, third-person compatibility, live dynamic anchor, and per-MOD calibration in left4dead2/skeeto/fpb/profiles.ini.
+- Skeetoscript: Better first-person body (Lux's Survivor Legs Advanced) — off by default; height offset default 5; hide head/arms, third-person compatibility, live dynamic anchor, and per-MOD calibration in left4dead2/skeeto/fpb/profiles.ini.
 Changed:
 - Tank / Witch gold trophies now use the same checkpoint damage deltas as the Boss damage board: shown above the highest contributor this fight (never above you; if you are first, the next visible teammate; else the killer).
 Fixed:
@@ -46,6 +47,7 @@ Fixed:
 - Multi-Tank damage-number attribution: prefer the locked health-bar Tank, then a nearby recent impact / aim cone, instead of another alive Tank.
 - Crash when leaving Free Camera flight to the main menu or joining another server (stale view write).
 - Steam avatars on TAB / chapter stats follow L4N (left4neko): engine GetSteamAPIContext → RequestUserInformation → GetMediumFriendAvatar; fixes late joiners stuck on "?". TAB key does not call Steam; Paint does at most one fetch and one upload per 500 ms.
+- Retarget after the 2026-11-25 L4D2 small update (client/engine/server/studiorender): supply radar, third-person aim, FreeCam/FPB gates, idle person restore, stock overhead-name control, fast-load early view/local wait/async mesh, and external sound cache follow the new PE stamps and relocated code sites.
 
 ## 2.2.21（2026-11-21）
 	Skeeto核心：

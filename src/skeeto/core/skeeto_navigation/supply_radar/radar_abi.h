@@ -12,6 +12,9 @@ inline bool EqualBytes(const unsigned char* p,const unsigned char* expected,unsi
     for(unsigned i=0;i<size;++i)if(p[i]!=expected[i])return false;
     return true;
 }
+inline bool equalBytes(const unsigned char* p,const unsigned char* expected,unsigned size){
+    return EqualBytes(p,expected,size);
+}
 // engine.dll of the single supported L4D2 build (timestamp 6AFCB59C, image size 73F000).
 inline bool EngineBuild(unsigned char* base){
     if(!Readable(base,0x1000)||*(unsigned short*)base!=0x5a4d)return false;

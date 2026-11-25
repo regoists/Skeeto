@@ -79,7 +79,7 @@ struct EarlyGameView {
     }
     bool Begin(uint8_t* module,size_t bytes,void* baseClient) {
         if(owned)return true;
-        // x86 client SHA 4d01ed9f...c835d52d; reject other ABI, changed
+        // x86 client SHA 4d01ed9f...c835d52d (2026-11-25); reject other ABI, changed
         // VClient016 slot 66 or a getter that no longer reads the frozen flag.
         IMAGE_DOS_HEADER dos{};IMAGE_NT_HEADERS32 nt{};
         uintptr_t table=0,predicate=0;uint8_t getter[7]{};
@@ -146,7 +146,7 @@ struct LocalReadyDelay {
     }
     bool Begin(uint8_t* module,size_t bytes) {
         if(owned)return true;
-        // Retail x86 server SHA 6c543884...cecc9950. Admit the native wait
+        // Retail x86 server after 2026-11-25 (stamp 6AFCCCA0). Admit the native wait
         // context and relocated operand, not an address from another build.
         IMAGE_DOS_HEADER dos{};IMAGE_NT_HEADERS32 nt{};
         const uint8_t head[]{0x55,0x8b,0xec,0x83,0xec,0x2c,0x53,0x8b,0xd9,0x80,0x7b,0x28,0};
@@ -966,7 +966,7 @@ inline bool Detach() {
 
 // This signature is the sole redraw call inside retail CEngineVGui's progress
 // updater, after server loading-progress transmission and both UI updates.
-// x86 engine SHA256 8a6d4680...0bf7ba86, RVA 0x21e50e, cdecl void(void).
+// x86 engine SHA256 d4518007...ecc1db3 (2026-11-25); FindSite is pattern-based.
 // Find exactly one site and verify its callee ABI/body before writing. A changed
 // game or pre-existing plugin patch produces Unsupported, with no fallback.
 inline uint8_t* FindSite(uint8_t* code, size_t bytes) {

@@ -10,21 +10,22 @@ namespace skeeto_local_draw {
 
 enum class Owner : unsigned char { FreeCam = 1, Fpb = 2 };
 
-inline constexpr uint32_t kGateRva = 0x2233f1u;
-inline constexpr uint32_t kDispRva = 0x223402u;
+inline constexpr uint32_t kGateRva = 0x2234d1u;
+inline constexpr uint32_t kDispRva = 0x2234e2u;
 inline constexpr uint8_t kOrig = 0x13;
 inline constexpr uint8_t kPass = 0x00;
 inline constexpr uint8_t kGateBytes[] = {
-	0x57, 0xe8, 0x79, 0xc2, 0xde, 0xff, 0x83, 0xc4, 0x04,
+	0x57, 0xe8, 0x99, 0xc1, 0xde, 0xff, 0x83, 0xc4, 0x04,
 	0x80, 0xb8, 0xec, 0x25, 0x00, 0x00, 0x00, 0x74, 0x13,
 	0x8b, 0x55, 0x0c, 0x52, 0x53, 0x8b, 0xce, 0xe8,
-	0xf1, 0x0b, 0xe4, 0xff, 0x5b, 0x5f, 0x5e, 0x5d,
+	0x11, 0x0b, 0xe4, 0xff, 0x5b, 0x5f, 0x5e, 0x5d,
 	0xc2, 0x08, 0x00, 0x5b, 0x5f, 0x33, 0xc0, 0x5e, 0x5d,
 	0xc2, 0x08, 0x00
 };
 static_assert(kDispRva - kGateRva == 17 && kGateBytes[17] == kOrig, "local DrawModel gate layout");
 
-inline constexpr uint32_t kClientStamp = 0x6A440ECFu;
+// Retail x86 client.dll after 2026-11-25 small update (stamp only; SizeOfImage unchanged).
+inline constexpr uint32_t kClientStamp = 0x6AFCCCABu;
 inline constexpr uint32_t kClientImage = 0x963000u;
 
 using WriteFn = bool (*)(uint8_t* p, const uint8_t* src, int n);
@@ -81,7 +82,7 @@ inline bool Acquire(Owner owner, DWORD paintTid, WriteFn write, ExecFn isExec) {
 	HMODULE mod = GetModuleHandleA("client.dll");
 	if (!mod || !PeOk(mod)) {
 		s.rejected = true;
-		return false;
+		return false; // caller may log; PE stamp/size must match kClient*
 	}
 	uint8_t* gate = (uint8_t*)mod + kGateRva;
 	uint8_t* disp = (uint8_t*)mod + kDispRva;

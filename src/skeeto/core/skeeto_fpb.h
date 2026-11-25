@@ -32,7 +32,7 @@ struct Settings {
 	bool followCameraYaw = true;
 	float forward = -13.f;
 	float right = -1.f;
-	float up = -1.f;
+	float up = 5.f;
 	float step = 1.f;
 	float fallbackEyeHeight = 5.f;
 	float yawTrim = 0.f;

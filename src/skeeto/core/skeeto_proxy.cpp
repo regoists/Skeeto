@@ -17737,7 +17737,7 @@ static void WorldNamesStockPaintTick() {
 		const auto base = (const uint8_t*)GetModuleHandleA("client.dll");
 		if (!base) return;
 		g_worldNamesStockResolved = true;
-		// Verified x86 retail client: SHA256 4D01ED9F...C835D52D.
+		// Verified x86 retail client after 2026-11-25: SHA256 4d01ed9f...c835d52d.
 		// Fail open on other builds or patched Paint implementations. No signature
 		// scan, entity pointer retention, inline detour or guess at a new ABI.
 		const auto dos = (const IMAGE_DOS_HEADER*)base;
@@ -59954,6 +59954,7 @@ static bool FreeCamReadable(const void* p, size_t bytes) {
 	return skmem::SpanProbeAt(p, bytes, (uintptr_t)_ReturnAddress());
 }
 static bool TpsAimResolve(); // shared ClientMode CreateMove resolve (defined below)
+static bool TpsAimIsPrimaryMode(void* self);
 static void FreeCamSetDrawLocal(bool enable);
 
 static bool FreeCamWanted() {
@@ -60170,10 +60171,11 @@ static bool FpbStudioPeOk(HMODULE mod) {
 		|| pe->FileHeader.Machine != IMAGE_FILE_MACHINE_I386
 		|| pe->OptionalHeader.Magic != IMAGE_NT_OPTIONAL_HDR32_MAGIC)
 		return false;
-	// Same two studiorender PE profiles L4D2-Visual-Effects accepts.
+	// Same SizeOfImage profiles L4D2-Visual-Effects accepts; stamp is the
+	// 2026-11-25 retail studiorender.dll (0x6AF27334).
 	const DWORD stamp = pe->FileHeader.TimeDateStamp;
 	const DWORD image = pe->OptionalHeader.SizeOfImage;
-	return stamp == 1782844886u && (image == 0x453000u || image == 0x653000u);
+	return stamp == 0x6AF27334u && (image == 0x453000u || image == 0x653000u);
 }
 static void FpbRemoveStudioHook() {
 	if (!g_fpbStudioHooked || !g_fpbStudioSlot) return;
@@ -60339,6 +60341,10 @@ static void FpbSetGate(bool enable) {
 	if (g_fpbGateOpen) return;
 	if (skeeto_local_draw::Acquire(skeeto_local_draw::Owner::Fpb, g_paintTid, AfkWrite, IsExec))
 		g_fpbGateOpen = true;
+	else if (skeeto_local_draw::Rejected()) {
+		static bool logged = false;
+		if (!logged) { logged = true; Log("fpb: local DrawModel gate rejected"); }
+	}
 }
 static void FpbEndSession() {
 	g_fpbDecorate = false;
@@ -60483,7 +60489,10 @@ static void __fastcall Hooked_FreeCamOverrideView(void* self, void*, void* setup
 	using Fn = void(__thiscall*)(void*, void*);
 	Fn original = (Fn)g_freeCamViewOriginal.load(std::memory_order_acquire);
 	if (original) original(self, setup);
-	if (GetCurrentThreadId() != g_paintTid || self != g_tpsAimMode) return;
+	if (GetCurrentThreadId() != g_paintTid || !TpsAimIsPrimaryMode(self)) return;
+	g_tpsAimMode = self;
+	if (EngDrawingLoading()
+		|| g_mapEnterGameThreadResetPending.load(std::memory_order_acquire)) return;
 	if (!FreeCamWanted() || !g_freeCamFlying || !setup) return;
 	// Leave the native view alone outside an active in-game scene, and while paused.
 	if (!FreeCamSceneReady()) {
@@ -60524,7 +60533,8 @@ static bool __fastcall Hooked_FreeCamShouldDrawViewModel(void* self, void*) {
 	using Fn = bool(__thiscall*)(void*);
 	Fn original = (Fn)g_freeCamVmOriginal.load(std::memory_order_acquire);
 	const bool native = original ? original(self) : true;
-	if (GetCurrentThreadId() != g_paintTid || self != g_tpsAimMode) return native;
+	if (GetCurrentThreadId() != g_paintTid || !TpsAimIsPrimaryMode(self)) return native;
+	g_tpsAimMode = self;
 	if (FreeCamWanted() && g_freeCamFlying && g_optFreeCamHideVm) return false;
 	return native;
 }
@@ -60723,16 +60733,30 @@ static void TpsAimUnhook() {
 	// Keep the upstream pointer alive: another plugin may retain our detour.
 	TpsAimClear();
 }
+// g_pClientMode[0] at client+0x7B1B8C (unchanged across 0x6a440ecf → 0x6afcccab).
+// Do NOT call into GetClientMode's mid-thunk at +0x228310 — that is the post-call
+// `mov eax,[eax*4+array]; ret` tail and crashes when entered as a function (menu crash).
+static void* TpsAimPrimaryMode() {
+	if (!g_tpsAimClient) return nullptr;
+	void* mode = nullptr;
+	if (!skmem::Copy(&mode, g_tpsAimClient + 0x7B1B8C, sizeof(mode))) return nullptr;
+	return TpsAimReadable(mode, sizeof(void*)) ? mode : nullptr;
+}
+static bool TpsAimIsPrimaryMode(void* self) {
+	if (!self) return false;
+	void* primary = TpsAimPrimaryMode();
+	if (primary) return self == primary;
+	return self == g_tpsAimMode;
+}
 static bool TpsAimNativeThirdPerson() {
-	if (!g_tpsAimThird || !g_tpsAimInputCell || !XhairThirdPersonActive()) return false;
-	if (!TpsAimReadable(g_tpsAimInputCell,sizeof(void*))) return false;
-	void* input=*g_tpsAimInputCell;
-	if (!TpsAimReadable(input,sizeof(void*))) return false;
-	void** vt=*(void***)input;
-	if (!TpsAimReadable(vt,31*sizeof(void*)) || !IsExec(vt[30])) return false;
-	// L4N can replace this VMT slot for sound routing. The verified native
-	// getter reads the same CInput state; no foreign callback ABI is invoked.
-	return g_tpsAimThird(input,-1); // Retail split-screen argument; NOT a zero-arg getter.
+	// Post-2026-11-25 retail: shoulder third-person is driven by c_thirdpersonshoulder and
+	// does not keep CInput CAM +0x7d in sync (shoulder path still references stale
+	// g_pInput@0x6E2F04). Gate on the ConVar alone — requiring CAM_IsThirdPerson left the
+	// feature stuck in FirstPerson with a live CreateMove hook.
+	if (!g_tpsAimResolved) return false;
+	if (EngDrawingLoading()
+		|| g_mapEnterGameThreadResetPending.load(std::memory_order_acquire)) return false;
+	return XhairThirdPersonActive();
 }
 static void* TpsAimLocalPawn(float* eye) {
 	const int offsets[]={g_offTeam,g_offLifeState,g_offOrigin,g_offViewOffset,
@@ -60804,12 +60828,16 @@ static bool __fastcall Hooked_TpsAimCreateMove(void* self,void*,float sample,voi
 	Fn original=(Fn)g_tpsAimOriginal.load(std::memory_order_acquire);
 	if (!original) return true; // Unreachable after publication; never dereference an absent upstream.
 	const bool nativeReturn=original(self,sample,command);
-	if (self==g_tpsAimMode && (g_optClientTpsAim || (g_optFreeCam && g_freeCamFlying))) {
+	if (EngDrawingLoading()
+		|| g_mapEnterGameThreadResetPending.load(std::memory_order_acquire)) return nativeReturn;
+	const bool primary = TpsAimIsPrimaryMode(self);
+	if (primary && (g_optClientTpsAim || (g_optFreeCam && g_freeCamFlying))) {
+		g_tpsAimMode = self;
 		g_tpsAimInputThread.store(GetCurrentThreadId(),std::memory_order_relaxed);
 		if (GetCurrentThreadId()!=g_paintTid) g_tpsAimForeignCalls.fetch_add(1,std::memory_order_relaxed);
 	}
 	// Never touch entities/cvars on an unexpected caller thread or secondary split-screen object.
-	if (GetCurrentThreadId()!=g_paintTid || self!=g_tpsAimMode) return nativeReturn;
+	if (GetCurrentThreadId()!=g_paintTid || !primary) return nativeReturn;
 	if (!g_run.load(std::memory_order_relaxed) || !SkeetoFeaturesOn()) {
 		TpsAimClear(); return nativeReturn;
 	}
@@ -60888,42 +60916,76 @@ static bool TpsAimResolve() {
 		const auto dos=(const IMAGE_DOS_HEADER*)base;
 		if (dos->e_magic!=IMAGE_DOS_SIGNATURE || dos->e_lfanew<0 || dos->e_lfanew>3000) { g_tpsAimRejected=true; return false; }
 		const auto nt=(const IMAGE_NT_HEADERS*)(base+dos->e_lfanew);
-		static const unsigned char cm[]={0x55,0x8b,0xec,0x6a,0xff,0xe8,0x66,0x07,0xfa,0xff,0x83,0xc4,0x04,0x85,0xc0,0x75,0x06,0xb0,0x01,0x5d};
-		static const unsigned char third[]={0x55,0x8b,0xec,0x56,0x8b,0xf1,0xe8,0xe5,0xe5,0x14,0x00,0x84,0xc0,0x74,0x07,0x33,0xc0,0x5e,0x5d,0xc2};
+		static const unsigned char cm[]={0x55,0x8b,0xec,0x6a,0xff,0xe8,0x36,0x07,0xfa,0xff,0x83,0xc4,0x04,0x85,0xc0,0x75,0x06,0xb0,0x01,0x5d};
+		static const unsigned char third[]={0x55,0x8b,0xec,0x56,0x8b,0xf1,0xe8,0x45,0xe6,0x14,0x00,0x84,0xc0,0x74,0x07,0x33,0xc0,0x5e,0x5d,0xc2};
 		static const unsigned char moveProxy[]={0x55,0x8b,0xec,0x8b,0x45,0x08,0x8a,0x48,0x04,0x8b,0x45,0x0c,0x88,0x88,0x44,0x01,0x00,0x00};
-		if (nt->Signature!=IMAGE_NT_SIGNATURE || nt->FileHeader.Machine!=IMAGE_FILE_MACHINE_I386
-			|| nt->FileHeader.TimeDateStamp!=0x6a440ecf || nt->OptionalHeader.SizeOfImage!=0x963000
-			|| !TpsAimReadable(base+0xC2D70,sizeof(cm)) || memcmp(base+0xC2D70,cm,sizeof(cm))
-			|| !TpsAimReadable(base+0x12E050,sizeof(third)) || memcmp(base+0x12E050,third,sizeof(third))
-			|| !TpsAimReadable(base+0x45BB0,sizeof(moveProxy)) || memcmp(base+0x45BB0,moveProxy,sizeof(moveProxy))) {
-			g_tpsAimRejected=true; g_tpsAimState=TpsAimState::Unsupported; return false;
+		const bool peOk=nt->Signature==IMAGE_NT_SIGNATURE && nt->FileHeader.Machine==IMAGE_FILE_MACHINE_I386
+			&& nt->FileHeader.TimeDateStamp==0x6afcccab && nt->OptionalHeader.SizeOfImage==0x963000;
+		const bool cmOk=TpsAimReadable(base+0xC2DA0,sizeof(cm)) && !memcmp(base+0xC2DA0,cm,sizeof(cm));
+		const bool thirdOk=TpsAimReadable(base+0x12E0C0,sizeof(third)) && !memcmp(base+0x12E0C0,third,sizeof(third));
+		const bool moveOk=TpsAimReadable(base+0x45BB0,sizeof(moveProxy)) && !memcmp(base+0x45BB0,moveProxy,sizeof(moveProxy));
+		if (!peOk || !cmOk || !thirdOk || !moveOk) {
+			g_tpsAimRejected=true; g_tpsAimState=TpsAimState::Unsupported;
+			Log("tps-aim: unsupported pe=%d cm=%d third=%d move=%d stamp=0x%08x",
+				peOk?1:0, cmOk?1:0, thirdOk?1:0, moveOk?1:0,
+				(unsigned)nt->FileHeader.TimeDateStamp);
+			return false;
 		}
-		g_tpsAimClient=base; g_tpsAimThird=(TpsAimThirdFn)(base+0x12E050);
+		g_tpsAimClient=base; g_tpsAimThird=(TpsAimThirdFn)(base+0x12E0C0);
 		// movetype's RecvProp offset is ZERO; RecvProxy_MoveType writes entity+0x144.
 		// Read the proven destination only after this exact proxy has passed its guard.
 		g_offTpsMoveType=0x144;
-		g_tpsAimInputCell=(void**)(base+0x6E2F04); g_tpsAimResolved=true;
+		g_tpsAimInputCell=(void**)(base+0x735E3C); g_tpsAimResolved=true;
 	}
-	void* mode=*(void**)(g_tpsAimClient+0x7B1B8C);
-	if (!TpsAimReadable(mode,sizeof(void*))) return false;
+	// Prefer a settled in-game ClientMode. IsInGame can be true while the loading image is
+	// still up; hooking CreateMove across that rebuild races freed mode/CInput objects
+	// (crash dumps: engine+319F33 / execute@random during join).
+	if (!EngInGame() || EngDrawingLoading()
+		|| g_mapEnterGameThreadResetPending.load(std::memory_order_acquire)) return false;
+	void* mode=TpsAimPrimaryMode();
+	if (!mode) return false;
 	void** vt=*(void***)mode;
 	if (!TpsAimReadable(vt,28*sizeof(void*)) || !IsExec(vt[27])) return false;
+	// Slot 27 must still be the fingerprinted CreateMove (or our hook / a chain on it).
+	void* const nativeCm=(void*)(g_tpsAimClient+0xC2DA0);
 	void* original=g_tpsAimOriginal.load(std::memory_order_acquire);
-	if (original && (mode!=g_tpsAimMode || &vt[27]!=g_tpsAimSlot || vt[27]!=original)) {
-		g_tpsAimState=TpsAimState::Conflict; g_tpsAimRejected=true; return false;
+	void* const hook=(void*)&Hooked_TpsAimCreateMove;
+	if (vt[27]!=nativeCm && vt[27]!=hook && vt[27]!=original) {
+		// Foreign owner we did not chain through — stop rather than fight it.
+		if (original && vt[27]!=original) {
+			g_tpsAimState=TpsAimState::Conflict; g_tpsAimRejected=true; return false;
+		}
 	}
-	if (!original) {
-		// Chain an existing detour, but never publish a slot before the upstream is valid.
+	if (original) {
+		g_tpsAimMode=mode;
+		if (&vt[27]!=g_tpsAimSlot) {
+			// Different vtable (e.g. mode class switch): drop prior slot, rebind.
+			if (g_tpsAimHooked) TpsAimUnhook();
+			g_tpsAimSlot=&vt[27];
+			if (vt[27]!=hook) {
+				g_tpsAimOriginal.store(vt[27],std::memory_order_release);
+				original=vt[27];
+			}
+		} else if (vt[27]==hook) {
+			g_tpsAimHooked=true; return true;
+		} else if (vt[27]!=original) {
+			// Same slot stolen by someone else after us.
+			g_tpsAimState=TpsAimState::Conflict; g_tpsAimRejected=true; return false;
+		}
+	} else {
 		g_tpsAimMode=mode; g_tpsAimSlot=&vt[27];
 		g_tpsAimOriginal.store(vt[27],std::memory_order_release);
+		original=vt[27];
 	}
 	HMODULE pinned=nullptr;
 	if (!GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS|GET_MODULE_HANDLE_EX_FLAG_PIN,
 		(LPCSTR)&Hooked_TpsAimCreateMove,&pinned)) return false;
-	if (!TpsAimSwapSlot(g_tpsAimSlot,g_tpsAimOriginal.load(std::memory_order_acquire),(void*)&Hooked_TpsAimCreateMove)) {
+	if (!TpsAimSwapSlot(g_tpsAimSlot,original,hook)) {
 		g_tpsAimState=TpsAimState::Conflict; g_tpsAimRejected=true; return false;
 	}
-	g_tpsAimHooked=true; return true;
+	g_tpsAimHooked=true;
+	Log("tps-aim: hooked mode=%p vt=%p cm=%p", mode, vt, original);
+	return true;
 }
 static const wchar_t* TpsAimStateText() {
 	if (!g_optClientTpsAim) return UiText(UiId::TpsAimOff,L"已关闭");
@@ -60944,10 +61006,12 @@ static void TpsAimPaintPump() {
 	const bool report=g_tpsAimReportRequested.exchange(false,std::memory_order_acq_rel);
 	bool centerVisible=false;
 	const bool moveWanted=ClientModeMoveWanted();
-	if (!moveWanted) {
+	const bool loading=EngDrawingLoading()
+		|| g_mapEnterGameThreadResetPending.load(std::memory_order_acquire);
+	if (!moveWanted || loading) {
 		if (g_tpsAimHooked || g_tpsAimPose.valid) TpsAimUnhook();
 		g_tpsAimEventUser.store(0,std::memory_order_release); g_tpsAimUserAt=0;
-		g_tpsAimState=TpsAimState::Off;
+		g_tpsAimState=loading && moveWanted ? TpsAimState::Waiting : TpsAimState::Off;
 	} else {
 		if (g_tpsAimResetRequested.exchange(false,std::memory_order_acq_rel)) TpsAimClear();
 		const DWORD now=GetTickCount();
@@ -60956,9 +61020,15 @@ static void TpsAimPaintPump() {
 			g_tpsAimUserAt=now; PlayerInfo pi{};
 			if (EngPlayerInfo(EngLocal(),&pi)) g_tpsAimEventUser.store(pi.userid,std::memory_order_release);
 		}
-		if (!g_tpsAimHooked && !g_tpsAimRejected && (g_tpsAimOriginal.load(std::memory_order_acquire) || g_tpsAimTries<60)
+		// After PE/fingerprint resolve, keep retrying until CreateMove is hooked — ClientMode
+		// may appear well after the first minute of Paint (menu/HUD rebuild). Cap only the
+		// cold PE probe so a wrong build still stops quickly. Never install across loading.
+		if (!g_tpsAimHooked && !g_tpsAimRejected
+			&& (g_tpsAimResolved || g_tpsAimOriginal.load(std::memory_order_acquire) || g_tpsAimTries<60)
 			&& (!g_tpsAimTryAt || now-g_tpsAimTryAt>=1000u)) {
-			g_tpsAimTryAt=now; ++g_tpsAimTries; TpsAimResolve();
+			g_tpsAimTryAt=now;
+			if (!g_tpsAimResolved) ++g_tpsAimTries;
+			TpsAimResolve();
 		}
 		if (g_tpsAimHooked && *g_tpsAimSlot!=(void*)&Hooked_TpsAimCreateMove) {
 			g_tpsAimHooked=false; g_tpsAimRejected=true; TpsAimClear(); g_tpsAimState=TpsAimState::Conflict;
@@ -68890,88 +68960,110 @@ static bool IdleViewRestorePlaying() {
 	return EngPlayerInfo(local, &pi) && g_localUserId > 0 && pi.userid == g_localUserId;
 }
 
+// Idle person restore for client 0x6afcccab.
+// CAM transitions take the static CInput at client+0x6E2F04 (shoulder path). That cell is a
+// link-time pointer to a .data object — not the CreateMove cell at +0x735E3C.
 // Paint owns the snapshot; events publish only a bounded transition request.
-// Native x86 CInput CAM getter/first/third were checked in client.dll
-// 4D01ED9F...: getter takes split-screen slot (-1), transitions take no args.
 static std::atomic_int g_idlePersonRequest{0}; // -1 reset, 1 idle, 2 takeover
 static bool g_idlePersonHaveLive = false, g_idlePersonFrozen = false;
 static bool g_idlePersonThird = false, g_idlePersonHaveSnapshot = false;
-static DWORD g_idlePersonSampleAt = 0, g_idlePersonRestoreAt = 0, g_idlePersonUntil = 0;
+static DWORD g_idlePersonSampleAt = 0, g_idlePersonRestoreAt = 0;
 static bool g_idlePersonArmed = false;
 static const uint8_t* g_idlePersonClient = nullptr;
 static void IdlePersonRestoreReset() { g_idlePersonRequest.store(-1, std::memory_order_release); }
 static void IdlePersonRestoreOnSwap(const char* name, int player, int bot) {
-    if (!g_optClientIdlePersonRestore || !SkeetoFeaturesOn() || g_localUserId <= 0
-        || (player != g_localUserId && bot != g_localUserId)) return;
-    g_idlePersonRequest.store(name[0] == 'b' ? 2 : 1, std::memory_order_release);
+	if (!g_optClientIdlePersonRestore || !SkeetoFeaturesOn() || g_localUserId <= 0
+		|| (player != g_localUserId && bot != g_localUserId)) return;
+	g_idlePersonRequest.store(name[0] == 'b' ? 2 : 1, std::memory_order_release);
 }
 static void* IdlePersonInput() {
-    static bool tried = false;
-    static void** cell = nullptr;
-    if (!tried) {
-        tried = true;
-        const auto base = (const uint8_t*)GetModuleHandleA("client.dll");
-        if (!base) return nullptr;
-        const auto dos = (const IMAGE_DOS_HEADER*)base;
-        const auto nt = (const IMAGE_NT_HEADERS*)(base + dos->e_lfanew);
-        static const uint8_t getter[] = {0x55,0x8b,0xec,0x56,0x8b,0xf1,0xe8,0x45,0xe6,0x14,0x00};
-        static const uint8_t third[] = {0x55,0x8b,0xec,0x83,0xec,0x0c,0x56,0x6a,0xff};
-        static const uint8_t first[] = {0x6a,0xff,0xe8,0x39,0x36,0x00,0x00,0x33,0xc9};
-        if (nt->FileHeader.Machine == IMAGE_FILE_MACHINE_I386
-            && nt->FileHeader.TimeDateStamp == 0x6afcccab && nt->OptionalHeader.SizeOfImage == 0x963000
-            && !memcmp(base + 0x12e0c0, getter, sizeof(getter))
-            && !memcmp(base + 0x12de30, third, sizeof(third))
-            && !memcmp(base + 0x12dea0, first, sizeof(first))) {
-            cell = (void**)(base + 0x6e2f04); g_idlePersonClient = base;
-        }
-        else Log("idle-person: unsupported native camera; not restored");
-    }
-    void* input = nullptr;
-    return cell && skmem::Copy(&input, cell, sizeof(input)) ? input : nullptr;
+	static bool resolved = false;
+	static bool unsupported = false;
+	static void** cell = nullptr;
+	if (unsupported) return nullptr;
+	if (!resolved) {
+		const auto base = (const uint8_t*)GetModuleHandleA("client.dll");
+		if (!base) return nullptr;
+		const auto dos = (const IMAGE_DOS_HEADER*)base;
+		if (dos->e_magic != IMAGE_DOS_SIGNATURE || dos->e_lfanew <= 0 || dos->e_lfanew > 4096) {
+			unsupported = true;
+			Log("idle-person: unsupported native camera; not restored");
+			return nullptr;
+		}
+		const auto nt = (const IMAGE_NT_HEADERS32*)(base + dos->e_lfanew);
+		// Native x86 CInput CAM getter/first/third on 4D01ED9F...: getter takes
+		// split-screen slot (-1), transitions take no args.
+		static const uint8_t getter[] = {0x55,0x8b,0xec,0x56,0x8b,0xf1,0xe8,0x45,0xe6,0x14,0x00};
+		static const uint8_t third[] = {0x55,0x8b,0xec,0x83,0xec,0x0c,0x56,0x6a,0xff};
+		static const uint8_t first[] = {0x6a,0xff,0xe8,0x39,0x36,0x00,0x00,0x33,0xc9};
+		if (nt->Signature == IMAGE_NT_SIGNATURE
+			&& nt->FileHeader.Machine == IMAGE_FILE_MACHINE_I386
+			&& nt->FileHeader.TimeDateStamp == 0x6afcccab && nt->OptionalHeader.SizeOfImage == 0x963000
+			&& !memcmp(base + 0x12e0c0, getter, sizeof(getter))
+			&& !memcmp(base + 0x12de30, third, sizeof(third))
+			&& !memcmp(base + 0x12dea0, first, sizeof(first))) {
+			cell = (void**)(base + 0x6e2f04);
+			g_idlePersonClient = base;
+			resolved = true;
+			Log("idle-person: camera ready");
+		} else {
+			unsupported = true;
+			Log("idle-person: unsupported native camera; not restored");
+			return nullptr;
+		}
+	}
+	void* input = nullptr;
+	return cell && skmem::Copy(&input, cell, sizeof(input)) ? input : nullptr;
 }
 static void IdlePersonRestorePump() {
-    const int request = g_idlePersonRequest.exchange(0, std::memory_order_acq_rel);
-    if (request == -1 || !g_optClientIdlePersonRestore || !SkeetoFeaturesOn()
-        || !g_paintInGame.load(std::memory_order_relaxed)) {
-        g_idlePersonHaveLive = g_idlePersonFrozen = g_idlePersonHaveSnapshot = g_idlePersonArmed = false;
-        return;
-    }
-    const DWORD now = GetTickCount();
-    if (request == 1) {
-        g_idlePersonFrozen = true;
-        g_idlePersonHaveSnapshot = g_idlePersonHaveLive;
-        g_idlePersonArmed = false;
-    } else if (request == 2) {
-        g_idlePersonFrozen = true;
-        if (!g_idlePersonHaveSnapshot) g_idlePersonHaveSnapshot = g_idlePersonHaveLive;
-        g_idlePersonArmed = g_idlePersonHaveSnapshot;
-        g_idlePersonRestoreAt = now + 100u;
-        g_idlePersonUntil = now + 2000u;
-    }
-    if (g_idlePersonSampleAt && (LONG)(now - g_idlePersonSampleAt) < 0) return;
-    g_idlePersonSampleAt = now + 100u;
-    if (g_idlePersonFrozen && !g_idlePersonArmed) return;
-    if (g_idlePersonArmed && (LONG)(now - g_idlePersonUntil) >= 0) {
-        g_idlePersonArmed = g_idlePersonFrozen = g_idlePersonHaveSnapshot = g_idlePersonHaveLive = false;
-        Log("idle-person: takeover timed out; snapshot discarded"); return;
-    }
-    if (!IdleViewRestorePlaying() || g_dbgLocalTeam.load(std::memory_order_relaxed) != 2
-        || g_dbgLifeState.load(std::memory_order_relaxed) != 0) return;
-    void* input = IdlePersonInput();
-    if (!input) return;
-    const auto base = g_idlePersonClient;
-    using GetCamera = bool(__thiscall*)(void*, int);
-    using SetCamera = void(__thiscall*)(void*);
-    const bool third = ((GetCamera)(base + 0x12e0c0))(input, -1);
-    if (g_idlePersonArmed) {
-        if ((LONG)(now - g_idlePersonRestoreAt) < 0) return;
-        if (third != g_idlePersonThird)
-            ((SetCamera)(base + (g_idlePersonThird ? 0x12de30 : 0x12dea0)))(input);
-        g_idlePersonArmed = g_idlePersonFrozen = g_idlePersonHaveSnapshot = false;
-    } else {
-        g_idlePersonThird = third;
-        g_idlePersonHaveLive = true;
-    }
+	if (!g_optClientIdlePersonRestore || !SkeetoFeaturesOn()
+		|| !g_paintInGame.load(std::memory_order_relaxed)) {
+		g_idlePersonRequest.store(0, std::memory_order_release);
+		g_idlePersonHaveLive = g_idlePersonFrozen = g_idlePersonHaveSnapshot = g_idlePersonArmed = false;
+		return;
+	}
+	if (EngDrawingLoading()
+		|| g_mapEnterGameThreadResetPending.load(std::memory_order_acquire)) return;
+	const int request = g_idlePersonRequest.exchange(0, std::memory_order_acq_rel);
+	if (request == -1) {
+		g_idlePersonHaveLive = g_idlePersonFrozen = g_idlePersonHaveSnapshot = g_idlePersonArmed = false;
+		return;
+	}
+	const DWORD now = GetTickCount();
+	if (request == 1) {
+		g_idlePersonFrozen = true;
+		g_idlePersonHaveSnapshot = g_idlePersonHaveLive;
+		g_idlePersonArmed = false;
+		Log("idle-person: idle snapshot third=%d", g_idlePersonThird ? 1 : 0);
+	} else if (request == 2) {
+		g_idlePersonFrozen = true;
+		if (!g_idlePersonHaveSnapshot) g_idlePersonHaveSnapshot = g_idlePersonHaveLive;
+		g_idlePersonArmed = g_idlePersonHaveSnapshot;
+		g_idlePersonRestoreAt = now + 50u;
+		Log("idle-person: takeover armed=%d third=%d",
+			g_idlePersonArmed ? 1 : 0, g_idlePersonThird ? 1 : 0);
+	}
+	if (g_idlePersonSampleAt && (LONG)(now - g_idlePersonSampleAt) < 0) return;
+	g_idlePersonSampleAt = now + 50u;
+	if (g_idlePersonFrozen && !g_idlePersonArmed) return;
+	void* input = IdlePersonInput();
+	if (!input || !g_idlePersonClient) return;
+	using GetCamera = bool(__thiscall*)(void*, int);
+	using SetCamera = void(__thiscall*)(void*);
+	const auto base = g_idlePersonClient;
+	const bool third = ((GetCamera)(base + 0x12e0c0))(input, -1);
+	if (g_idlePersonArmed) {
+		if ((LONG)(now - g_idlePersonRestoreAt) < 0) return;
+		if (third != g_idlePersonThird)
+			((SetCamera)(base + (g_idlePersonThird ? 0x12de30 : 0x12dea0)))(input);
+		g_idlePersonArmed = g_idlePersonFrozen = g_idlePersonHaveSnapshot = false;
+		Log("idle-person: restored third=%d", g_idlePersonThird ? 1 : 0);
+		return;
+	}
+	if (!IdleViewRestorePlaying() || g_dbgLocalTeam.load(std::memory_order_relaxed) != 2
+		|| g_dbgLifeState.load(std::memory_order_relaxed) != 0) return;
+	g_idlePersonThird = third;
+	g_idlePersonHaveLive = true;
 }
 
 static bool IdleViewLocalObserving() {

@@ -44,8 +44,8 @@ inline bool TextSizeABI(void* surface){
     return true;
 }
 inline bool EntityScanABI(void* entities){
-    // VClientEntityList003 slot 6, verified in the installed client.dll:
-    // mov eax,[ecx+24h]; ret. No stack arguments.
+    // VClientEntityList003 slot 6, verified in the 2026-11-25 client.dll:
+    // mov eax,[ecx+24h]; ret. No stack arguments. RVA 0xb8de0 (+0x30 from prior).
     auto base=(unsigned char*)GetModuleHandleW(L"client.dll");
     return MethodOK(entities,6)&&(*(void***)entities)[6]==base+0xb8de0&&Readable(base+0xb8de0,4)&&*(unsigned*)(base+0xb8de0)==0xc324418b;
 }
