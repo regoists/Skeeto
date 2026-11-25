@@ -1,7 +1,7 @@
 #pragma once
 #include "radar_abi.h"
 
-// Verified in the installed client 6A440ECF / 963000 image. EntityList slot 3
+// Verified in the installed client 6AFCCCAB / 963000 image. EntityList slot 3
 // returns the main IClientEntity base. Its slot 11 is GetAbsOrigin for every
 // supported item and CTerrorPlayer. A C++ Vector reference is returned in EAX.
 using WorldOriginFn=const Vec*(__thiscall*)(void*);

@@ -12,11 +12,11 @@ inline bool EqualBytes(const unsigned char* p,const unsigned char* expected,unsi
     for(unsigned i=0;i<size;++i)if(p[i]!=expected[i])return false;
     return true;
 }
-// engine.dll of the single supported L4D2 build (timestamp 6A440ED6, image size 73F000).
+// engine.dll of the single supported L4D2 build (timestamp 6AFCB59C, image size 73F000).
 inline bool EngineBuild(unsigned char* base){
     if(!Readable(base,0x1000)||*(unsigned short*)base!=0x5a4d)return false;
     unsigned nt=*(unsigned*)(base+0x3c);if(nt>0xe00)return false;
     return *(unsigned*)(base+nt)==0x4550&&*(unsigned short*)(base+nt+4)==0x14c&&
-           *(unsigned*)(base+nt+8)==0x6a440ed6&&*(unsigned*)(base+nt+0x50)==0x73f000;
+           *(unsigned*)(base+nt+8)==0x6afcb59c&&*(unsigned*)(base+nt+0x50)==0x73f000;
 }
 }

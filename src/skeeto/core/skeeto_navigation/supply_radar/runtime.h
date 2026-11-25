@@ -620,7 +620,7 @@ static int configureFail;
 static bool Configure(){
     configured=true;radarReady=false;configureFail=0;entitySerialReady=parentHandleReady=modelLookupReady=directionSurfaceReady=false;
     if(!engine||!entities||!surface){configureFail=1;return false;}
-    if(!ModuleProfile(L"engine.dll",0x6a440ed6,0x73f000)||!ModuleProfile(L"client.dll",0x6a440ecf,0x963000)||!ModuleProfile(L"vguimatsurface.dll",0x6a440da4,0x172000)){configureFail=2;return false;}
+    if(!ModuleProfile(L"engine.dll",0x6afcb59c,0x73f000)||!ModuleProfile(L"client.dll",0x6afcccab,0x963000)||!ModuleProfile(L"vguimatsurface.dll",0x6a440da4,0x172000)){configureFail=2;return false;}
     const int slots[]={8,9,11,12,17,19,20,22,24,28,29,31,32,34,33,63,64,66,72,105,106};
     for(int slot:slots)if(!MethodOK(surface,slot)){configureFail=100+slot;return false;}
     if(!MethodOK(engine,5)||!MethodOK(engine,12)||!MethodOK(entities,0)||!MethodOK(entities,3)){configureFail=3;return false;}
@@ -633,7 +633,7 @@ static bool Configure(){
     parentHandleReady=EntityHandleABI(entities);entitySerialReady=EntityIdentityABI(entities);
     // Retail model lookup (slot 1) and name (slot 3) only; any other layout disables model-based labels.
     auto base=(unsigned char*)GetModuleHandleW(L"engine.dll");
-    if(base&&MethodOK(modelInfo,1)&&MethodOK(modelInfo,3))modelLookupReady=(*(void***)modelInfo)[3]==base+0x1afba0&&(*(void***)modelInfo)[1]==base+0x1b0420;
+    if(base&&MethodOK(modelInfo,1)&&MethodOK(modelInfo,3))modelLookupReady=(*(void***)modelInfo)[3]==base+0x1afbf0&&(*(void***)modelInfo)[1]==base+0x1b0470;
     camera_origin::Configure(engine);directionSurfaceReady=DirectionPolygonABI(surface);
     radarReady=true;return true;
 }

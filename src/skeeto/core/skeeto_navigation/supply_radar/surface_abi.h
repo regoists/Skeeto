@@ -47,7 +47,7 @@ inline bool EntityScanABI(void* entities){
     // VClientEntityList003 slot 6, verified in the installed client.dll:
     // mov eax,[ecx+24h]; ret. No stack arguments.
     auto base=(unsigned char*)GetModuleHandleW(L"client.dll");
-    return MethodOK(entities,6)&&(*(void***)entities)[6]==base+0xb8db0&&Readable(base+0xb8db0,4)&&*(unsigned*)(base+0xb8db0)==0xc324418b;
+    return MethodOK(entities,6)&&(*(void***)entities)[6]==base+0xb8de0&&Readable(base+0xb8de0,4)&&*(unsigned*)(base+0xb8de0)==0xc324418b;
 }
 inline bool EntityHandleABI(void* entities){
     auto base=(unsigned char*)GetModuleHandleW(L"client.dll");
@@ -55,10 +55,10 @@ inline bool EntityHandleABI(void* entities){
     // its serial), then obtains IClientEntity. Never mask a stale parent handle
     // into an entity index and accidentally follow a replacement object.
     const unsigned char bytes[]={0x55,0x8b,0xec,0x8b,0x55,0x08,0x51,0x8b,0xc4,0x89,0x10,0x8b,0x01,0x8b,0x50,0x08,0xff,0xd2,0x85,0xc0,0x74,0x0d,0x8b,0x10,0x8b,0xc8,0x8b,0x42,0x18,0xff,0xd0,0x5d,0xc2,0x04,0x00};
-    if(!MethodOK(entities,4)||(*(void***)entities)[4]!=base+0xb8e90||!Readable(base+0xb8e90,sizeof bytes))return false;
-    for(unsigned i=0;i<sizeof bytes;++i)if(base[0xb8e90+i]!=bytes[i])return false;
+    if(!MethodOK(entities,4)||(*(void***)entities)[4]!=base+0xb8ec0||!Readable(base+0xb8ec0,sizeof bytes))return false;
+    for(unsigned i=0;i<sizeof bytes;++i)if(base[0xb8ec0+i]!=bytes[i])return false;
     const unsigned char serialCheck[]={0xc1,0xea,0x0c,0x39,0x50,0x04,0x75,0x06,0x8b,0x00,0x5d,0xc2,0x04,0x00};
-    if(!MethodOK(entities,2)||(*(void***)entities)[2]!=base+0xbb4c0||!Readable(base+0xbb4de,sizeof serialCheck))return false;
-    for(unsigned i=0;i<sizeof serialCheck;++i)if(base[0xbb4de+i]!=serialCheck[i])return false;
+    if(!MethodOK(entities,2)||(*(void***)entities)[2]!=base+0xbb4f0||!Readable(base+0xbb50e,sizeof serialCheck))return false;
+    for(unsigned i=0;i<sizeof serialCheck;++i)if(base[0xbb50e+i]!=serialCheck[i])return false;
     return true;
 }

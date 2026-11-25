@@ -418,6 +418,13 @@ int main() {
         require(!slot.installed && *slot.slot==slot.native,"failed path attachment rolls back candidate mutation hooks");
     candidateCall[1]^=1;
     skload::g_pathRejectSite=nullptr;skload::SetLoading(false);
+    skload::g_candidateChecked=true;skload::g_candidateStatus=skload::Status::Conflict;
+    require(!skload::ConfigureCandidates(true) && skload::g_candidateChecked,
+        "an active candidate conflict keeps the foreign owner");
+    require(skload::ConfigureCandidates(false) && !skload::g_candidateChecked,
+        "closing an incomplete discovery lets the next enable recheck retail targets");
+    require(!skload::ConfigureCandidates(true) && skload::g_candidateStatus==skload::Status::Unsupported,
+        "the next enable runs discovery again and reports the missing filesystem in this fixture");
     auto& native=skload::g_nativePreload;
     auto* groupImage=static_cast<uint8_t*>(VirtualAlloc(nullptr,0x500000,MEM_COMMIT|MEM_RESERVE,PAGE_READWRITE));
     require(groupImage!=nullptr,"empty static-prop map fixture");

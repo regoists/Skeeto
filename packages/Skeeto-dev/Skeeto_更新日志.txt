@@ -15,6 +15,20 @@ Then extract all contents of the new package into the game's root directory. If 
 
 项目开源链接：https://github.com/regoists/Skeeto
 
+## 2.2.22（2026-11-25）
+	Skeeto核心：
+修复：
+- 适配《求生之路 2》Steam Build 26770911。物资雷达可再次识别物资，并在对应的屏幕位置显示图标和文字。
+- 修复自定义队友头顶名字与原版名字重叠的问题。闲置后重新接管角色时，会恢复闲置前的第一人称或越肩视角。
+- 恢复“提前显示游戏画面”和“取消本地开局固定等待”。后者仅对单人游戏或自己主持的房间生效。
+- 修复异步加载后部分地图静态模型显示异常的问题，恢复音频缓存外置。文件系统接口被其他组件释放后，重新启用“跳过连续无关 VPK 包”即可重试。
+	Skeeto Core:
+Fixed:
+- Updated for Left 4 Dead 2 Steam build 26770911. The supply radar once again identifies items and draws their icons and text at the correct screen positions.
+- Fixed overlapping stock and custom teammate names. Taking control after going idle restores the previous first-person or over-the-shoulder camera.
+- Restored early scene display and the option to skip the fixed start delay. The latter applies to single-player and locally hosted games.
+- Fixed static props rendering incorrectly after asynchronous loading and restored audio cache offload. If another component releases the filesystem interface, toggling the option to skip unrelated VPKs retries it.
+
 ## 2.2.21（2026-11-21）
 	Skeeto核心：
 新增：
