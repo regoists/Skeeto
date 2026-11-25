@@ -1273,7 +1273,7 @@ void StartWorker(bool enabled,const wchar_t* gameRoot) {
     swprintf_s(path,L"%s\\bin\\filesystem_stdio.dll",gameRoot);
     if(!HashFile(path,"d0296dda2b65d86cfd7b63b970b2c60ddb40b459b022afc2a70364e3234afdc9")){g_status.store(Status::Unsupported);return;}
     swprintf_s(path,L"%s\\bin\\engine.dll",gameRoot);
-    g_audioVerified=HashFile(path,"8a6d468059394bf4cfce32f11dcba12ef45de88da1373084d5a2916d0bf7ba86");
+    g_audioVerified=HashFile(path,"d451800729322f25bfc65d58a408edb4f4243a8ea8c26fabccbba4bc7ecc1db3");
     if(!PrepareEmbeddedHost(path,_countof(path))){fail(Status::HostFailed);return;}
     g_records=static_cast<Record*>(VirtualAlloc(nullptr,sizeof(Record)*kRecordCount,MEM_COMMIT|MEM_RESERVE,PAGE_READWRITE));
     g_bufferPages=static_cast<BufferPage*>(VirtualAlloc(nullptr,sizeof(BufferPage)*65536u,MEM_COMMIT|MEM_RESERVE,PAGE_READWRITE));

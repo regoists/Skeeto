@@ -1,5 +1,6 @@
 """Supply radar wiring checks; no game, DLL build or user settings are touched."""
 from pathlib import Path
+import os
 import re
 import shutil
 import subprocess
@@ -83,8 +84,6 @@ class SupplyRadarIntegration(unittest.TestCase):
 
     def test_real_menu_mapping_and_enabled_layouts(self):
         """Compile the actual pure menu helpers, with a fixed engine-free API stub."""
-        compiler = shutil.which("clang++") or shutil.which("g++")
-        self.assertIsNotNone(compiler, "a C++ compiler is required for menu mapping checks")
         names = ["RadarMenuItemEnabled", "RadarMenuItemCount", "RadarMenuItemLabel", "RadarMenuSettingIndex", "RadarMenuBeginEdit"]
         functions = []
         for name in names:
@@ -118,7 +117,7 @@ class SupplyRadarIntegration(unittest.TestCase):
         root_input = PROXY[root_start:end]
         ui_ids = sorted(set(re.findall(r"UiId::(\w+)", root_input + table_decls)))
         root_stub = "\nenum class UiId {" + ",".join(ui_ids) + "};\n" + r'''
-int g_menuPage=0, g_menuSub=0, g_soundVolumeMenuSel=0, docsOpened=0;
+int g_menuPage=0, g_menuSub=0, g_soundVolumeMenuSel=0, g_soundVolumeAuxSel=-1, docsOpened=0;
 bool g_menuVisible=false;
 void MenuForceClose() {g_menuVisible=false;}
 const wchar_t* UiText(UiId, const wchar_t* text) {return text;}
@@ -143,17 +142,19 @@ void HomeInput(int digit) {
 #include <atomic>
 #include <cstdio>
 #include <cstring>
+#include "skeeto_navigation.h"
+#ifndef _WIN32
 #include <strings.h>
 #define _strnicmp strncasecmp
+#endif
 bool g_optSupplyRadar=false;
 std::atomic_int g_radarEditRequest{-1};
 namespace skeeto_nav {
-constexpr int kRadarLabelCount=35, kRadarItemBase=15, kRadarLayoutBase=50, kRadarSettingCount=190;
-int settings[190];
+int settings[kRadarSettingCount];
 int radarBeginCalls=0;
 void RadarBeginEdit(unsigned) {++radarBeginCalls;}
-bool RadarItemSupported(unsigned label) { return label>=1&&label<=34&&label!=10&&label!=22&&label!=23&&label!=30&&label!=31; }
-int RadarGet(int index) { return index>=0&&index<190 ? settings[index] : 0; }
+bool RadarItemSupported(unsigned label) { return label>=1&&label<kRadarLabelCount&&label!=10&&label!=22&&label!=23&&label!=30&&label!=31; }
+int RadarGet(int index) { return index>=0&&index<kRadarSettingCount ? settings[index] : 0; }
 void RadarSet(int index,int value) { settings[index]=value; }
 bool RadarEnabled() {return settings[0]!=0;}
 const char* RadarKey(int index) {static char key[64]; std::snprintf(key,sizeof(key),"supply_radar_test_%d",index);return key;}
@@ -164,27 +165,28 @@ int main() {
     using namespace skeeto_nav;
     for (int& setting : settings) setting = 1;
     static_assert(kRadarLayoutBase==kRadarItemBase+kRadarLabelCount,"layout block follows item block");
-    assert(RadarMenuItemCount(false)==34);
-    assert(RadarMenuItemCount(true)==29);
+    constexpr int total=kRadarLabelCount-1, supported=total-5;
+    assert(RadarMenuItemCount(false)==total);
+    assert(RadarMenuItemCount(true)==supported);
     g_optSupplyRadar=true;g_menuVisible=true;RadarMenuBeginEdit(1);
     assert(!g_menuVisible && g_radarEditRequest.load()==1 && radarBeginCalls==0);
     g_radarEditRequest.store(-1);RadarMenuBeginEdit(10);assert(g_radarEditRequest.load()==-1);
-    g_radarEditRequest.store(-1);RadarMenuBeginEdit(34);assert(g_radarEditRequest.load()==34);
+    g_radarEditRequest.store(-1);RadarMenuBeginEdit(total);assert(g_radarEditRequest.load()==total);
     g_radarEditRequest.store(-1);
     int last=0;
-    for (int slot=0;slot<34;++slot) {
+    for (int slot=0;slot<total;++slot) {
         int label=RadarMenuItemLabel(slot/9,slot%9,false);
         assert(label==slot+1);
         int index=RadarMenuSettingIndex(kMenuPageSupplyRadarItems,slot/9,slot%9);
         assert(index==(RadarItemSupported(label)?kRadarItemBase+label:-1));
     }
-    for (int slot=0;slot<29;++slot) {
+    for (int slot=0;slot<supported;++slot) {
         int label=RadarMenuItemLabel(slot/9,slot%9,true);
         assert(label>last && RadarItemSupported(label)); last=label;
     }
-    assert(last==34);
-    assert(RadarMenuItemLabel(3,2,true)==-1);
-    assert(RadarMenuItemLabel(3,7,false)==-1);
+    assert(last==total);
+    assert(RadarMenuItemLabel(supported/9,supported%9,true)==-1);
+    assert(RadarMenuItemLabel(total/9,total%9,false)==-1);
     for (int row=0;row<9;++row) {
         assert(RadarMenuSettingIndex(kMenuPageSupplyRadar,0,row)==(row<8?row:-1));
         assert(RadarMenuSettingIndex(kMenuPageSupplyRadar,1,row)==(row<7?8+row:-1));
@@ -192,12 +194,13 @@ int main() {
     }
     assert(RadarMenuSettingIndex(kMenuPageSupplyRadarLayout,0,0)==-1);
     // Category switches (12 medical, 13 throwables, 14 weapons) gate their labels only.
-    settings[12]=0; assert(RadarMenuItemCount(true)==25);
-    settings[13]=0; assert(RadarMenuItemCount(true)==22);
-    settings[14]=0; assert(RadarMenuItemCount(true)==5); // ammo, laser, gas can, fireworks, safehouse
-    settings[kRadarItemBase+9]=0; assert(RadarMenuItemCount(true)==4);
-    settings[kRadarItemBase+34]=0; assert(RadarMenuItemCount(true)==3);
+    settings[12]=0; assert(RadarMenuItemCount(true)==supported-4);
+    settings[13]=0; assert(RadarMenuItemCount(true)==supported-7);
+    settings[14]=0; assert(RadarMenuItemCount(true)==supported-24);
+    settings[kRadarItemBase+9]=0; assert(RadarMenuItemCount(true)==supported-25);
+    settings[kRadarItemBase+34]=0; assert(RadarMenuItemCount(true)==supported-26);
     settings[kRadarItemBase+8]=0; settings[kRadarItemBase+32]=0; settings[kRadarItemBase+33]=0;
+    for(int label=35;label<=total;++label)settings[kRadarItemBase+label]=0;
     assert(RadarMenuItemCount(true)==0);
     assert(RadarMenuItemLabel(0,0,true)==-1);
     const int expected[]={kMenuPageBackgroundEngine,kMenuPageNavigation,kMenuPageSupplyRadar,kMenuPageViewModel,kMenuPageSoundVolume,kMenuPageCombatVisual,kMenuPageClientConvenience,kMenuPageCrashGuard,kMenuPageNecolaStartup};
@@ -211,7 +214,7 @@ int main() {
     g_menuPage=0; g_menuSub=2; HomeInput(3); assert(g_menuPage==kMenuPageMenuStyle);
     g_menuPage=0; g_menuSub=2; HomeInput(4); assert(docsOpened==1 && g_menuPage==0);
     g_menuPage=0; g_menuSub=0; HomeInput(9); assert(g_menuPage==kMenuPageFastLoad);
-    FILE* saved=std::tmpfile(); assert(saved);
+    FILE* saved=std::fopen("radar-roundtrip.cfg","w+b"); assert(saved);
     for(int i=0;i<kRadarSettingCount;++i) settings[i]=i*17+1;
     SaveRadar(saved); std::rewind(saved); std::memset(settings,0,sizeof(settings));
     LoadRadar(saved); std::fclose(saved);
@@ -224,9 +227,25 @@ int main() {
             path = Path(directory)
             source, binary = path / "menu.cpp", path / "menu.exe"
             source.write_text(stub + constants + root_stub + persistence + "\n" + "\n".join(functions) + main, encoding="utf-8")
-            built = subprocess.run([compiler, "-std=c++17", "-Wall", "-Wextra", "-Werror", str(source), "-o", str(binary)], capture_output=True, text=True)
+            includes = ROOT / "src/skeeto/core"
+            if os.name == "nt":
+                vswhere = Path(os.environ["ProgramFiles(x86)"]) / "Microsoft Visual Studio/Installer/vswhere.exe"
+                vs = subprocess.check_output([str(vswhere), "-latest", "-products", "*", "-requires",
+                                              "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
+                                              "-property", "installationPath"], text=True).strip()
+                (path / "build.bat").write_text(
+                    f'@echo off\ncall "{vs}\\VC\\Auxiliary\\Build\\vcvarsall.bat" x86 >nul\n'
+                    'if errorlevel 1 exit /b 1\n'
+                    f'cl /nologo /EHsc /std:c++17 /utf-8 /W4 /WX /D_CRT_SECURE_NO_WARNINGS /I"{includes}" menu.cpp\n',
+                    encoding="utf-8")
+                command = ["cmd", "/c", "build.bat"]
+            else:
+                compiler = shutil.which("clang++") or shutil.which("g++")
+                self.assertIsNotNone(compiler, "a C++ compiler is required for menu mapping checks")
+                command = [compiler, "-std=c++17", "-Wall", "-Wextra", "-Werror", "-I", str(includes), str(source), "-o", str(binary)]
+            built = subprocess.run(command, cwd=path, capture_output=True, text=True, errors="replace")
             self.assertEqual(built.returncode, 0, built.stdout + built.stderr)
-            run = subprocess.run([str(binary)], capture_output=True, text=True)
+            run = subprocess.run([str(binary)], cwd=path, capture_output=True, text=True)
             self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
 
 

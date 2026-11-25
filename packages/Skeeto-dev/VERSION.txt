@@ -1,5 +1,5 @@
-Skeeto 2.2.21
-released=2026-11-21
-semver=2.2.21
+Skeeto 2.2.22
+released=2026-11-25
+semver=2.2.22
 module=steam-bootstrap-transactional-update
-note=MP4 main-menu backgrounds can advance sequentially or randomly after EOS (sequential by default); shove fatigue HUD picks coop vs versus max-penalty ConVars by mode
+note=Restore supply radar, teammate names, idle camera, load options, static props and audio cache offload on L4D2 Steam build 26770911.

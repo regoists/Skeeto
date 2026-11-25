@@ -58,7 +58,7 @@ struct EarlyGameView {
     Status status = Status::Off;
     unsigned writes = 0, restores = 0, failures = 0, conflicts = 0;
     bool Swap(bool enable) {
-        uint8_t expected[]{0x8b,0x0d,0,0,0,0,0x85,0xc9,0x74,0x0c,0xe8,0xd1,0x8d,0x1b,0,0x84,0xc0,0x74,3,0x32,0xc0,0xc3,0xb0,1,0xc3};
+        uint8_t expected[]{0x8b,0x0d,0,0,0,0,0x85,0xc9,0x74,0x0c,0xe8,0xa1,0x8e,0x1b,0,0x84,0xc0,0x74,3,0x32,0xc0,0xc3,0xb0,1,0xc3};
         const uintptr_t resource=uintptr_t(image+0x72e700);
         memcpy(expected+2,&resource,4);if(!enable)expected[17]=0xeb;
         uint8_t actual[sizeof(expected)]{};
@@ -79,7 +79,7 @@ struct EarlyGameView {
     }
     bool Begin(uint8_t* module,size_t bytes,void* baseClient) {
         if(owned)return true;
-        // x86 client SHA c0a8e1e8...eeb4af1f; reject other ABI, changed
+        // x86 client SHA 4d01ed9f...c835d52d; reject other ABI, changed
         // VClient016 slot 66 or a getter that no longer reads the frozen flag.
         IMAGE_DOS_HEADER dos{};IMAGE_NT_HEADERS32 nt{};
         uintptr_t table=0,predicate=0;uint8_t getter[7]{};
@@ -90,7 +90,7 @@ struct EarlyGameView {
             || nt.FileHeader.Machine!=IMAGE_FILE_MACHINE_I386 || nt.OptionalHeader.Magic!=IMAGE_NT_OPTIONAL_HDR32_MAGIC
             || !baseClient || !skmem::Copy(&table,baseClient,4) || !table
             || !skmem::Copy(&predicate,reinterpret_cast<void*>(table+66*4),4) || predicate!=uintptr_t(module+0xa93d0)
-            || !skmem::Copy(getter,module+0x2621b0,sizeof(getter)) || memcmp(getter,nativeGetter,sizeof(getter))) {
+            || !skmem::Copy(getter,module+0x262280,sizeof(getter)) || memcmp(getter,nativeGetter,sizeof(getter))) {
             ++failures;status=Status::Unsupported;return false;
         }
         image=module;return Swap(true);
@@ -125,7 +125,7 @@ struct LocalReadyDelay {
         uint8_t expected[]{0xf3,0x0f,0x58,0x05,0,0,0,0}, actual[8]{};
         const uintptr_t constant = uintptr_t(image + (enable ? 0x5d4920 : 0x5d491c));
         memcpy(expected+4,&constant,4);
-        auto* site=image+0x28d69f;
+        auto* site=image+0x28d77f;
         if(!skmem::Copy(actual,site,8)) { ++failures;status=Status::PatchFailed;return false; }
         if(memcmp(actual,expected,8)) { ++conflicts;owned=false;status=Status::Conflict;return !enable; }
         DWORD old=0,ignored=0;
@@ -146,7 +146,7 @@ struct LocalReadyDelay {
     }
     bool Begin(uint8_t* module,size_t bytes) {
         if(owned)return true;
-        // Retail x86 server SHA a93ec916...2e1ea12. Admit the native wait
+        // Retail x86 server SHA 6c543884...cecc9950. Admit the native wait
         // context and relocated operand, not an address from another build.
         IMAGE_DOS_HEADER dos{};IMAGE_NT_HEADERS32 nt{};
         const uint8_t head[]{0x55,0x8b,0xec,0x83,0xec,0x2c,0x53,0x8b,0xd9,0x80,0x7b,0x28,0};
@@ -156,8 +156,8 @@ struct LocalReadyDelay {
             || dos.e_magic!=IMAGE_DOS_SIGNATURE || dos.e_lfanew<0 || size_t(dos.e_lfanew)>bytes-sizeof(nt)
             || !skmem::Copy(&nt,module+dos.e_lfanew,sizeof(nt)) || nt.Signature!=IMAGE_NT_SIGNATURE
             || nt.FileHeader.Machine!=IMAGE_FILE_MACHINE_I386 || nt.OptionalHeader.Magic!=IMAGE_NT_OPTIONAL_HDR32_MAGIC
-            || !skmem::Copy(actual,module+0x28d500,sizeof(head)) || memcmp(actual,head,sizeof(head))
-            || !skmem::Copy(actual,module+0x28d6a7,sizeof(store)) || memcmp(actual,store,sizeof(store))
+            || !skmem::Copy(actual,module+0x28d5e0,sizeof(head)) || memcmp(actual,head,sizeof(head))
+            || !skmem::Copy(actual,module+0x28d787,sizeof(store)) || memcmp(actual,store,sizeof(store))
             || !skmem::Copy(constants,module+0x5d491c,sizeof(constants)) || constants[0]!=0.f || constants[1]!=3.f
             || (uintptr_t(module+0x5d491c)&~uintptr_t(255))!=(uintptr_t(module+0x5d4920)&~uintptr_t(255))) {
             ++failures;status=Status::Unsupported;return false;
@@ -419,7 +419,12 @@ inline bool PatchMutation(MutationSlot& s,bool attach) {
 inline bool DetachCandidates() {
     bool off = true;
     for (auto& s : g_mutationSlots) if (s.installed && !PatchMutation(s,false)) off = false;
-    if (off) g_candidateStatus = Status::Off;
+    if (off) {
+        // A foreign owner can stop discovery before it publishes the native targets.
+        // Recheck them on the next enable after that owner releases the interface.
+        if (g_candidateStatus == Status::Conflict && !g_pathRejectSite) g_candidateChecked = false;
+        g_candidateStatus = Status::Off;
+    }
     return off;
 }
 inline void SetCandidateBits(CandidateEntry& e, uint32_t h) {
