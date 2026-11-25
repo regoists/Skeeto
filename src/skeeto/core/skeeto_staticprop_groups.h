@@ -14,18 +14,18 @@ struct StaticPropGroups {
     SetGroup setter=nullptr;
     unsigned failures=0;
     bool Bind(uint8_t* e,size_t engineBytes,uint8_t* c,size_t clientBytes) {
-        if(!e || engineBytes<0x6e0c18 || !c || clientBytes<0xbd3b4)return false;
+        if(!e || engineBytes<0x6e0c18 || !c || clientBytes<0xbd3e4)return false;
         uint8_t factory[]{0xb8,0,0,0,0,0xc3};const uintptr_t manager=uintptr_t(e+0x4333b8);memcpy(factory+1,&manager,4);
         const uint8_t getter[]{0x55,0x8b,0xec,0x8b,0x45,8,0x85,0xc0,0x74,0x12,0xf6,0x80,0x14,1,0,0,2};
         const uint8_t method[]{0x55,0x8b,0xec,0x66,0x8b,0x45,8,0xba,0xff,0xff,0,0,0x66,0x3b,0xc2,0x74,0x1f,0x0f,0xb7,0xc0,0x6b,0xc0,0x4c,3,0x41,0x24,0x8b,0x4d,0x0c,0xc1,0xe1,0x0c,0x66,0x33,0x48,0x16,0xba,0,0x30,0,0,0x66,0x23,0xca,0x66,0x31,0x48,0x16,0x5d,0xc2,8,0};
         uint8_t prepare[]{0x55,0x8b,0xec,0x81,0xec,0,2,0,0,0x8b,0x0d,0,0,0,0,0x8b,1,0x8b,0x55,0x0c,0x8b,0x40,0x28,0x53,0x56,0x57,0x52,0xff,0xd0,0x8b,0x75,8};
         const uintptr_t cacheGlobal=uintptr_t(e+0x6e0c14);memcpy(prepare+11,&cacheGlobal,4);
         uint8_t actual[sizeof(method)]{};
-        if(!skmem::Copy(actual,e+0x1f4200,sizeof(factory)) || memcmp(actual,factory,sizeof(factory))
-            || !skmem::Copy(actual,e+0x1aff30,sizeof(getter)) || memcmp(actual,getter,sizeof(getter))
+        if(!skmem::Copy(actual,e+0x1f43d0,sizeof(factory)) || memcmp(actual,factory,sizeof(factory))
+            || !skmem::Copy(actual,e+0x1aff80,sizeof(getter)) || memcmp(actual,getter,sizeof(getter))
             || !skmem::Copy(actual,e+0xe9430,sizeof(prepare)) || memcmp(actual,prepare,sizeof(prepare))
-            || !skmem::Copy(actual,c+0xbd380,sizeof(method)) || memcmp(actual,method,sizeof(method)))return false;
-        engine=e;initialize=reinterpret_cast<Initialize>(e+0xe9430);setter=reinterpret_cast<SetGroup>(c+0xbd380);return true;
+            || !skmem::Copy(actual,c+0xbd3b0,sizeof(method)) || memcmp(actual,method,sizeof(method)))return false;
+        engine=e;initialize=reinterpret_cast<Initialize>(e+0xe9430);setter=reinterpret_cast<SetGroup>(c+0xbd3b0);return true;
     }
     bool Repair() {
         // Native manager owns this map's array. Its leaf handles are 16-bit;

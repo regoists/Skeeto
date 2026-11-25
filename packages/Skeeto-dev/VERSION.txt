@@ -1,5 +1,5 @@
 Skeeto 2.2.22
-released=2026-11-22
+released=2026-11-25
 semver=2.2.22
 module=steam-bootstrap-transactional-update
-note=Free Camera (client-only fly view, default off); idle bot names keep the human player label; freecam leave-to-menu crash fix
+note=L4D2 build 26770911 restore (radar, names, idle camera, load options, static props, audio cache); Free Camera; better FPB; idle-name and multi-Tank attribution fixes

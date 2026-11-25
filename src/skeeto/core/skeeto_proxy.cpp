@@ -17737,32 +17737,32 @@ static void WorldNamesStockPaintTick() {
 		const auto base = (const uint8_t*)GetModuleHandleA("client.dll");
 		if (!base) return;
 		g_worldNamesStockResolved = true;
-		// Verified x86 retail client: SHA256 C0A8E1E8...EEB4AF1F.
+		// Verified x86 retail client: SHA256 4D01ED9F...C835D52D.
 		// Fail open on other builds or patched Paint implementations. No signature
 		// scan, entity pointer retention, inline detour or guess at a new ABI.
 		const auto dos = (const IMAGE_DOS_HEADER*)base;
 		if (dos->e_magic != IMAGE_DOS_SIGNATURE || dos->e_lfanew <= 0 || dos->e_lfanew > 4096) return;
 		const auto pe = (const IMAGE_NT_HEADERS32*)(base + dos->e_lfanew);
 		if (pe->Signature != IMAGE_NT_SIGNATURE || pe->FileHeader.Machine != IMAGE_FILE_MACHINE_I386
-			|| pe->FileHeader.TimeDateStamp != 0x6A440ECFu || pe->OptionalHeader.SizeOfImage != 0x963000u) return;
+			|| pe->FileHeader.TimeDateStamp != 0x6AFCCCABu || pe->OptionalHeader.SizeOfImage != 0x963000u) return;
 		static const uint8_t paintHead[] = {0x55,0x8B,0xEC,0x83,0xEC,0x64,0x53,0x56,0x57,0x83,0xCE,0xFF,0x56,0x89,0x4D,0xF8};
-		const auto slot = (void**)(base + 0x5D3364);
-		const auto col = *(const uint8_t* const*)(base + 0x5D3160);
+		const auto slot = (void**)(base + 0x5D3374);
+		const auto col = *(const uint8_t* const*)(base + 0x5D3170);
 		if (col != base + 0x6A2C0C || *(const uint32_t*)col != 0) return;
 		const auto type = *(const uint8_t* const*)(col + 12);
 		static const char playerLabelType[] = ".?AVCPlayerLabel@@";
 		if (type < base || type > base + 0x962F00
 			|| memcmp((const char*)type + 8, playerLabelType, sizeof(playerLabelType))) return;
-		if (*slot != base + 0x2C74E0 || memcmp(*slot,paintHead,sizeof(paintHead))) return;
+		if (*slot != base + 0x2C75B0 || memcmp(*slot,paintHead,sizeof(paintHead))) return;
 		g_worldNamesStockSlot = slot;
 		g_worldNamesStockPaint = (WorldNamesStockPaintFn)*slot;
 		// DrawPlayerLabel(self, pawn, alpha, allowOtherTeam): ret 12, verified
 		// by the retail Paint call sites. Do not relax its friendly-team gate.
 		static const uint8_t drawHead[] = {0x55,0x8B,0xEC,0x81,0xEC,0x8C,0x03,0x00,0x00};
 		static const uint8_t drawRet[] = {0xC2,0x0C,0x00};
-		if (!memcmp(base+0x2C5DD0,drawHead,sizeof(drawHead))
-			&& !memcmp(base+0x2C6773,drawRet,sizeof(drawRet)))
-			g_worldNamesStockDraw = (WorldNamesStockDrawFn)(base+0x2C5DD0);
+		if (!memcmp(base+0x2C5EA0,drawHead,sizeof(drawHead))
+			&& !memcmp(base+0x2C6843,drawRet,sizeof(drawRet)))
+			g_worldNamesStockDraw = (WorldNamesStockDrawFn)(base+0x2C5EA0);
 	}
 	if (!g_worldNamesStockSlot) return;
 	if (wanted && *g_worldNamesStockSlot == (void*)g_worldNamesStockPaint)
@@ -68892,7 +68892,7 @@ static bool IdleViewRestorePlaying() {
 
 // Paint owns the snapshot; events publish only a bounded transition request.
 // Native x86 CInput CAM getter/first/third were checked in client.dll
-// C0A8E1E8...: getter takes split-screen slot (-1), transitions take no args.
+// 4D01ED9F...: getter takes split-screen slot (-1), transitions take no args.
 static std::atomic_int g_idlePersonRequest{0}; // -1 reset, 1 idle, 2 takeover
 static bool g_idlePersonHaveLive = false, g_idlePersonFrozen = false;
 static bool g_idlePersonThird = false, g_idlePersonHaveSnapshot = false;
@@ -68914,14 +68914,14 @@ static void* IdlePersonInput() {
         if (!base) return nullptr;
         const auto dos = (const IMAGE_DOS_HEADER*)base;
         const auto nt = (const IMAGE_NT_HEADERS*)(base + dos->e_lfanew);
-        static const uint8_t getter[] = {0x55,0x8b,0xec,0x56,0x8b,0xf1,0xe8,0xe5,0xe5,0x14,0x00};
+        static const uint8_t getter[] = {0x55,0x8b,0xec,0x56,0x8b,0xf1,0xe8,0x45,0xe6,0x14,0x00};
         static const uint8_t third[] = {0x55,0x8b,0xec,0x83,0xec,0x0c,0x56,0x6a,0xff};
         static const uint8_t first[] = {0x6a,0xff,0xe8,0x39,0x36,0x00,0x00,0x33,0xc9};
         if (nt->FileHeader.Machine == IMAGE_FILE_MACHINE_I386
-            && nt->FileHeader.TimeDateStamp == 0x6a440ecf && nt->OptionalHeader.SizeOfImage == 0x963000
-            && !memcmp(base + 0x12e050, getter, sizeof(getter))
-            && !memcmp(base + 0x12ddc0, third, sizeof(third))
-            && !memcmp(base + 0x12de30, first, sizeof(first))) {
+            && nt->FileHeader.TimeDateStamp == 0x6afcccab && nt->OptionalHeader.SizeOfImage == 0x963000
+            && !memcmp(base + 0x12e0c0, getter, sizeof(getter))
+            && !memcmp(base + 0x12de30, third, sizeof(third))
+            && !memcmp(base + 0x12dea0, first, sizeof(first))) {
             cell = (void**)(base + 0x6e2f04); g_idlePersonClient = base;
         }
         else Log("idle-person: unsupported native camera; not restored");
@@ -68962,11 +68962,11 @@ static void IdlePersonRestorePump() {
     const auto base = g_idlePersonClient;
     using GetCamera = bool(__thiscall*)(void*, int);
     using SetCamera = void(__thiscall*)(void*);
-    const bool third = ((GetCamera)(base + 0x12e050))(input, -1);
+    const bool third = ((GetCamera)(base + 0x12e0c0))(input, -1);
     if (g_idlePersonArmed) {
         if ((LONG)(now - g_idlePersonRestoreAt) < 0) return;
         if (third != g_idlePersonThird)
-            ((SetCamera)(base + (g_idlePersonThird ? 0x12ddc0 : 0x12de30)))(input);
+            ((SetCamera)(base + (g_idlePersonThird ? 0x12de30 : 0x12dea0)))(input);
         g_idlePersonArmed = g_idlePersonFrozen = g_idlePersonHaveSnapshot = false;
     } else {
         g_idlePersonThird = third;
