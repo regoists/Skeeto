@@ -717,8 +717,14 @@ static bool BindSections() {
         if(i==Audio) {
             auto engine=reinterpret_cast<BYTE*>(GetModuleHandleW(L"engine.dll"));
             void* client=*reinterpret_cast<void**>(p+0xb4);
+            // engine+0x354d44 / +0x33b40 were verified on the current SHA256 image.
+            // If Valve relocates the WaveData client iface, keep mesh/anim and drop audio only.
             if(!engine || !Readable(client,sizeof(void*)) || *static_cast<void**>(client)!=engine+0x354d44
-                || (*static_cast<void***>(client))[0]!=engine+0x33b40)candidate[i]=nullptr;
+                || (*static_cast<void***>(client))[0]!=engine+0x33b40) {
+                candidate[i]=nullptr;
+                static bool logged{};
+                if(!logged){logged=true; OutputDebugStringA("skeeto_cache: WaveData client iface mismatch; audio offload skipped\n");}
+            }
         }
     }
     // Keep restore routing for already-owned cold handles. A failed rebind must

@@ -1,5 +1,19 @@
 Skeeto 使用说明
 ==============
+【！！！重要：1.x → 2.x 必须手动迁移一次，这是一次架构级调整的破坏性更新，所以无法自动升级。1.x版本有较为严重的性能漏洞和缺陷，建议所有skeeto用户立即升级到2.x架构。】
+【!!! IMPORTANT: Upgrading from 1.x to 2.x requires a one-time manual migration. This is a breaking update involving an architectural overhaul, so automatic upgrades are not possible. Version 1.x contains relatively severe performance issues and defects. All Skeeto users are strongly advised to upgrade to the 2.0 architecture immediately.】
+
+如何从1.x版本迁移到2.x版本：
+工坊下载完成后，先退出游戏。可将 left4dead2\addons\workshop\3787239937.vpk 复制到游戏目录外，把副本的后缀由 .vpk改为 .zip 后解压。
+然后双击包内的“Setup_安装 维护 卸载.bat”，输入“1”并回车，按提示核对游戏根目录，确认脚本提示安装成功。迁移后可直接从 Steam 启动，不再使用旧 Skeeto 的 BAT 或独立启动器。旧版 ini 中仍需要的启动项，请自行迁移到 Steam 客户端的启动选项。
+How to migrate from version 1.x to 2.x:
+Once the Workshop download is complete, exit the game first. Copy left4dead2\addons\workshop\3787239937.vpk to a location outside the game directory, rename the copied file's extension to .zip, and extract it.
+Then double-click Setup_安装 维护 卸载.bat inside the extracted package, enter 1 and press Enter. Follow the prompts to verify the game's root directory and confirm that the script reports a successful installation.
+After migration, you can launch the game directly through Steam. Do not use the old Skeeto BAT file or standalone launcher anymore. If you still need any launch options from the old INI file, manually transfer them to the launch options in the Steam client.
+也可以手动迁移：先用旧版安装包中的“卸载 Uninstall Skeeto.bat”卸载 Skeeto，出现保留设置提示时选择 Y；也可自行移除确认属于旧 Skeeto 的文件。保留 skeeto_setting.ini、自定义素材等。（旧版设置可以被兼容）
+然后将新版包的全部内容解压到游戏根目录。旧版 ini 中仍需要的启动项，请自行迁移到 Steam 客户端的启动选项。
+You can also migrate manually: First, use 卸载 Uninstall Skeeto.bat from the old installation package to uninstall Skeeto. When prompted to keep your settings, select Y. Alternatively, you can manually remove files that you have confirmed belong to the old version of Skeeto. Keep skeeto_setting.ini, custom assets, and other personal files. (Old settings are compatible with the new version.)
+Then extract all contents of the new package into the game's root directory. If you still need any launch options from the old INI file, manually transfer them to the launch options in the Steam client.
 
 此说明适用于 Skeeto 2.0 架构。
 This guide is for the Skeeto 2.0 layout.

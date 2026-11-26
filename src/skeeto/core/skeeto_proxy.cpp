@@ -1143,6 +1143,8 @@ static void DirectorPhaseHudReset();
 static void BackgroundPaintBeforeOriginal(int mode);
 static void BackgroundPaintAfterOriginal();
 static void BackgroundRestoreOriginal();
+static void BackgroundClearHoldPlaceholder();
+static void BackgroundResetHoldBudget();
 static void BackgroundApplyConfig();
 static void BackgroundSyncVolumeFromConVar();
 static void AudioMixerSyncFromConVars();
@@ -8973,6 +8975,8 @@ static void TickPurePolicy(bool connected, bool ingame) {
 			IdleSwapHudClearQuiet();
 			FreeCamEndSession();
 			FpbEndSession();
+			// Drop menu black-hold so disconnect→homepage cannot open under a stuck cover.
+			BackgroundResetHoldBudget();
 			// L4D2 无 game_disconnect 事件；退服清理只靠已验证的 !connected 边沿。
 			g_tpsAimResetRequested.store(true, std::memory_order_release);
 			g_lastMusicReset.store(true, std::memory_order_release);
@@ -19474,6 +19478,11 @@ static int g_backgroundBikW = 0, g_backgroundBikH = 0;
 static float g_backgroundBikU = 1.f, g_backgroundBikV = 1.f;
 static float g_backgroundContentU = 1.f, g_backgroundContentV = 1.f;
 static bool g_backgroundHoldBlack = false;
+// HoldStock paints a full-screen black while media is not ready. Bound it so a
+// slow/failed decode after disconnect→menu cannot cover the stock UI forever.
+static DWORD g_backgroundHoldBlackSince = 0;
+static bool g_backgroundHoldBlackExhausted = false;
+static constexpr DWORD kBackgroundHoldBlackMaxMs = 750u;
 static bool g_backgroundUsingBik = false;
 static bool g_backgroundBikLogged = false;
 static unsigned int g_backgroundBikFailedGeneration = 0;
@@ -19661,9 +19670,27 @@ static void BackgroundNoteContentUv(int frameW, int frameH) {
 	g_backgroundContentV = potH > frameH ? (float)frameH / (float)potH : 1.f;
 }
 
+static void BackgroundClearHoldPlaceholder() {
+	g_backgroundHoldBlack = false;
+	g_backgroundHoldBlackSince = 0;
+}
+
+static void BackgroundResetHoldBudget() {
+	BackgroundClearHoldPlaceholder();
+	g_backgroundHoldBlackExhausted = false;
+}
+
 static bool BackgroundHoldStock() {
 	int sw = 0, sh = 0;
 	if (!SurfGetScreenSize(&sw, &sh) || sw <= 0 || sh <= 0) return false;
+	if (g_backgroundHoldBlackExhausted) return false;
+	const DWORD now = GetTickCount();
+	if (!g_backgroundHoldBlackSince) g_backgroundHoldBlackSince = now;
+	if ((LONG)(now - g_backgroundHoldBlackSince) >= (LONG)kBackgroundHoldBlackMaxMs) {
+		g_backgroundHoldBlackExhausted = true;
+		BackgroundClearHoldPlaceholder();
+		return false;
+	}
 	if (!BackgroundInstallGameUiHook()) return false;
 	g_backgroundScreenX = 0;
 	g_backgroundScreenY = 0;
@@ -19832,6 +19859,8 @@ static void BackgroundRemoveGameUiHook() {
 }
 
 static void BackgroundRestoreOriginal() {
+	BackgroundResetHoldBudget();
+	g_backgroundReplaceArmed = false;
 	if (!g_mainUiUnderlay.load(std::memory_order_acquire)) BackgroundRemoveGameUiHook();
 	BackgroundBikRelease();
 	g_backgroundTextureSerial = 0;
@@ -19956,6 +19985,7 @@ static void BackgroundPaintBeforeOriginal(int mode) {
 	if(pauseRequest>=0&&mainMenu){const auto state=SkeetoBackgroundGetPlayback();SkeetoBackgroundSetPaused(pauseRequest==2?!state.paused:pauseRequest==1);}
 	if (!mainMenu) {
 		if (g_backgroundWasMenuActive) BackgroundRestoreOriginal();
+		else BackgroundResetHoldBudget();
 		g_backgroundWasMenuActive = false;
 		return;
 	}
@@ -19986,11 +20016,12 @@ static void BackgroundPaintBeforeOriginal(int mode) {
 				return;
 			}
 			if (g_backgroundUsingBik && g_backgroundBikTextureId >= 0) {
-				g_backgroundHoldBlack = false;
+				BackgroundResetHoldBudget();
 				if (BackgroundInstallGameUiHook()) g_backgroundReplaceArmed = true;
 				return;
 			}
-			BackgroundHoldStock();
+			// Budget exhausted → leave stock PaintBackground visible (no black cover).
+			if (!BackgroundHoldStock()) g_backgroundReplaceArmed = false;
 			return;
 		}
 		if (!g_backgroundUsingBik) {
@@ -20011,7 +20042,7 @@ static void BackgroundPaintBeforeOriginal(int mode) {
 		// settling. Keep the valid native material alive and let the stock panel
 		// draw this Paint instead of recreating the BIK decoder every frame.
 		if (!BackgroundInstallGameUiHook()) return;
-		g_backgroundHoldBlack = false;
+		BackgroundResetHoldBudget();
 		g_backgroundReplacedThisPaint = false;
 		g_backgroundReplaceArmed = true;
 		return;
@@ -20028,14 +20059,14 @@ static void BackgroundPaintBeforeOriginal(int mode) {
 			&& BackgroundPrepareDrawDimensions(g_backgroundTextureW, g_backgroundTextureH,
 				SkeetoBackgroundFitMode(), g_backgroundContentU, g_backgroundContentV)
 			&& BackgroundInstallGameUiHook()) {
-			g_backgroundHoldBlack = false;
+			BackgroundResetHoldBudget();
 			g_backgroundReplaceArmed = true;
 			return;
 		}
-		BackgroundHoldStock();
+		if (!BackgroundHoldStock()) g_backgroundReplaceArmed = false;
 		return;
 	}
-	g_backgroundHoldBlack = false;
+	BackgroundResetHoldBudget();
 	// Arm only after a valid custom frame and texture exist.  The gameui hook
 	// replaces CL4DBasePanel's stock BIK at its exact background layer.
 	if (!BackgroundPrepareDraw(frame) || !BackgroundInstallGameUiHook()) return;
@@ -23234,7 +23265,8 @@ static void CacheOffloadReport() {
 			names[i],s.idleBytes[i]/1048576.0,s.unsafeBytes[i]/1048576.0,s.slabBytes[i]/1048576.0,s.rawLockedBytes[i],s.rawLockedItems[i]);
 		CrashGuardEcho(text);
 	}
-	swprintf_s(text,UiText(UiId::CacheOffloadReportAudio,L"声音 DLL 核验=%d, 动画可释放页分配=%d; 当前闲置门槛=%u 秒，仅允许释放已核验的模型自身缓存锁"),s.audioVerified?1:0,s.independentAnimations?1:0,s.idleMs/1000u);
+	swprintf_s(text,UiText(UiId::CacheOffloadReportAudio,L"声音 DLL 核验=%d, 声音接入=%d, 动画可释放页分配=%d; 当前闲置门槛=%u 秒，仅允许释放已核验的模型自身缓存锁"),
+		s.audioVerified?1:0,(s.boundMask&(1u<<2))?1:0,s.independentAnimations?1:0,s.idleMs/1000u);
 	CrashGuardEcho(text);
 	CrashGuardEcho(UiText(UiId::CacheOffloadReportSchedule,L"搬运调度: 最多 16 项在途，每次维护总复制 512 KB、预算 0.5 ms（单次系统操作可能超出）；进图前 30 秒按闲置 3 秒挑选，之后恢复 10 秒。进图加速、在途搬运和主动回收逐 Paint 推进，其余巡检最多 20 Hz；辅助进程按事件唤醒。"));
 	swprintf_s(text,UiText(UiId::CacheOffloadReportAudioHistory,L"声音 WaveData: 外置峰值=%.2f MB, 累计搬出=%.2f MB, 累计取回=%.2f MB, 状态查询=%u 次（外置时=%u 次）；只统计本分区，不代表全部声音内存。"),s.audioPeakBytes/1048576.0,s.audioMovedBytes/1048576.0,s.audioRestoredBytes/1048576.0,s.audioMetadataChecks,s.audioColdMetadataChecks);
@@ -36536,10 +36568,14 @@ static void MenuAdjustCurrentPage(int dir) {
 	if (g_menuPage == kMenuPageExtraAmmoHud) {
 		if (MenuShiftHeld()) {
 			g_ammoHudFont = ClampAdd(g_ammoHudFont, dir * kHudFontStep, kHudFontMin, kHudFontMax);
+			g_ammoHudLayoutFont = g_ammoHudFont;
 			AmmoHudInvalidateFont();
 			ClampAmmoHud();
 			SaveSettings();
-		} else MenuBumpHudScale(&g_ammoHudScale, dir * kHudScaleStep);
+		} else {
+			MenuBumpHudScale(&g_ammoHudScale, dir * kHudScaleStep);
+			AmmoHudInvalidateFont();
+		}
 		return;
 	}
 	if (g_menuPage == kMenuPageItemHud) { MenuBumpHudScale(&g_itemHudScale, dir * kHudScaleStep); return; }
@@ -47939,14 +47975,20 @@ static void* TabPrEntity() {
 // ---- Steam avatars -----------------------------------------------------------
 // Proven path = left4neko.dll player list (SHA256 f6b519b7…8428746d), not flat steam_api:
 //   engine GetSteamAPIContext (v170) → friends@+8, utils@+0xC
-//   RequestUserInformation (friends+0x94): true → retry later; false → GetMedium (+0x8c)
+//   RequestUserInformation (friends+0x94) + GetMedium (+0x8c) every pending poll
 //   GetImageSize (+0x14) / GetImageRGBA (+0x18) → 64×64 into cache → Surface upload
-// One Paint owner (ChapStatsAvatarPrefetch): 1 Steam poll + 1 upload / 500 ms.
-// TAB/key paths never call Steam. Settle quiet only uploads already-fetched RGBA.
+// SteamID high: Individual + instance 1 + GetConnectedUniverse (Public=1 → 0x01100001).
+// Always call Medium while pending (Steam loads the bitmap on that poll). Commit RGBA
+// only when Request returns false — committing while Request is true locked in the
+// grey "?" default. Until commit, the board draws s_panel faces (looks like "bot"
+// portraits); that is the intentional interim, not a permanent miss.
+// After Ready, slow-recheck Medium so a later custom image id can replace the first.
+// One Paint owner (ChapStatsAvatarPrefetch). TAB/key paths never call Steam.
 enum { kTabAvPending = 1, kTabAvRgba, kTabAvReady };
 struct TabAvatar {
 	uint32_t acct;
 	int texPlus1; // surface id + 1; 0 = not created
+	int steamImg; // last accepted GetMedium/Small image id; 0 = none
 	int w, h;
 	int state;
 	int epoch;
@@ -47955,7 +47997,8 @@ struct TabAvatar {
 };
 static constexpr int kTabAvMax = 40;
 static constexpr int kTabAvPx = 64;
-static constexpr DWORD kTabAvTickMs = 500u;
+static constexpr DWORD kTabAvTickMs = 100u;   // pending Request/Medium poll
+static constexpr DWORD kTabAvRefreshMs = 2000u; // re-check Medium after Ready
 static TabAvatar g_tbAv[kTabAvMax];
 static unsigned char g_tbAvRgba[kTabAvMax][kTabAvPx * kTabAvPx * 4];
 static int g_tbSteamUniverse = 0;
@@ -47968,12 +48011,14 @@ using TabSteamUniFn = int(__thiscall*)(void*);
 struct TabSteamFns {
 	TabSteamReqFn req = nullptr;
 	TabSteamAvFn medium = nullptr;
+	TabSteamAvFn smallAv = nullptr; // fallback when medium is not ready yet (avoid Windows `small` macro)
 	TabSteamSizeFn size = nullptr;
 	TabSteamRgbaFn rgba = nullptr;
 	TabSteamUniFn universe = nullptr;
 	bool ready = false;
 };
 static TabSteamFns g_tabSteamFns{};
+static unsigned g_tbAvScanCursor = 0;
 
 static TabAvatar* TabAvatarFind(uint32_t acct) {
 	if (!acct) return nullptr;
@@ -48018,6 +48063,7 @@ static bool TabSteamIfaces(void** friends, void** utils) {
 		TabSteamFns f{};
 		f.req = (TabSteamReqFn)VGet(fr, 37);
 		f.medium = (TabSteamAvFn)VGet(fr, 35);
+		f.smallAv = (TabSteamAvFn)VGet(fr, 34); // optional; Medium-first still matches L4N
 		f.size = (TabSteamSizeFn)VGet(ut, 5);
 		f.rgba = (TabSteamRgbaFn)VGet(ut, 6);
 		f.universe = (TabSteamUniFn)VGet(ut, 2);
@@ -48025,6 +48071,8 @@ static bool TabSteamIfaces(void** friends, void** utils) {
 			|| !IsExec((void*)f.req) || !IsExec((void*)f.medium)
 			|| !IsExec((void*)f.size) || !IsExec((void*)f.rgba))
 			return false;
+		if (f.smallAv && !IsExec((void*)f.smallAv)) f.smallAv = nullptr;
+		if (f.universe && !IsExec((void*)f.universe)) f.universe = nullptr;
 		f.ready = true;
 		g_tabSteamFns = f;
 	}
@@ -48036,7 +48084,7 @@ static bool TabSteamIfaces(void** friends, void** utils) {
 static int TabSteamUniverse(void* ut) {
 	if (g_tbSteamUniverse >= 1 && g_tbSteamUniverse <= 4) return g_tbSteamUniverse;
 	int u = 1;
-	if (g_tabSteamFns.universe && IsExec((void*)g_tabSteamFns.universe)) {
+	if (g_tabSteamFns.universe) {
 		__try {
 			const int got = g_tabSteamFns.universe(ut);
 			if (got >= 1 && got <= 4) u = got;
@@ -48048,17 +48096,20 @@ static int TabSteamUniverse(void* ut) {
 	return u;
 }
 
-// 1 = RGBA ready, 0 = pending, -1 = unavailable. L4N: Request → Medium → Size → RGBA.
+// 1 = RGBA ready (imgOut set), 0 = pending, -1 = unavailable.
+// Poll Medium every time (drives Steam's avatar download). Commit only after
+// Request says local persona data is ready — otherwise the grey "?" is cached.
 static int TabAvatarFetchOne(void* fr, void* ut, uint32_t acct, int uni,
-	unsigned char* out, int* w, int* h) {
+	unsigned char* out, int* w, int* h, int* imgOut) {
 	const TabSteamFns& f = g_tabSteamFns;
 	if (!f.ready) return -1;
-	const uint32_t sidHi = ((uint32_t)uni << 24) | 0x00100001u; // individual, instance 1
+	if (imgOut) *imgOut = 0;
+	const uint32_t sidHi = ((uint32_t)uni << 24) | 0x00100001u;
 	__try {
-		if (f.req(fr, acct, sidHi, false))
-			return 0; // Steam still fetching — same as L4N early-out
-		const int img = f.medium(fr, acct, sidHi);
-		if (img <= 0) return 0;
+		const bool waiting = f.req(fr, acct, sidHi, false);
+		int img = f.medium(fr, acct, sidHi);
+		if (img <= 0 && f.smallAv) img = f.smallAv(fr, acct, sidHi);
+		if (waiting || img <= 0) return 0;
 		uint32_t iw = 0, ih = 0;
 		if (!f.size(ut, img, &iw, &ih) || iw == 0 || ih == 0
 			|| iw > (uint32_t)kTabAvPx || ih > (uint32_t)kTabAvPx)
@@ -48066,13 +48117,15 @@ static int TabAvatarFetchOne(void* fr, void* ut, uint32_t acct, int uni,
 		if (!f.rgba(ut, img, out, (int)(iw * ih * 4u))) return 0;
 		*w = (int)iw;
 		*h = (int)ih;
+		if (imgOut) *imgOut = img;
 		return 1;
 	} __except (EXCEPTION_EXECUTE_HANDLER) {
 		return -1;
 	}
 }
 
-// Prefer visible TAB rows, then slot 1..32. At most maxWork Steam polls.
+// Collect live human friendsIDs, then Steam-poll a fair subset. Do not refresh
+// lastUse on already-ready rows — that starved late joiners under LRU eviction.
 static void TabAvatarFetch(int maxWork) {
 	if (!(g_optTabBoard || g_optChapStats) || !g_engine || !EngInGame() || EngDrawingLoading()) return;
 	if (maxWork < 1) maxWork = 1;
@@ -48081,41 +48134,71 @@ static void TabAvatarFetch(int maxWork) {
 	if (!TabSteamIfaces(&fr, &ut)) return;
 	const DWORD now = GetTickCount();
 	const int uni = TabSteamUniverse(ut);
-	int work = 0;
 
-	auto processAcct = [&](uint32_t acct) -> bool {
-		if (!acct || work >= maxWork) return false;
-		TabAvatar* a = TabAvatarAlloc(acct, now);
-		if (!a) return false;
+	uint32_t accts[48]{};
+	int n = 0;
+	auto push = [&](uint32_t acct) {
+		if (!acct || n >= (int)_countof(accts)) return;
+		for (int i = 0; i < n; ++i) if (accts[i] == acct) return;
+		accts[n++] = acct;
+	};
+	for (int i = 0; i < g_tbRowN && i < kTabRowsMax; ++i) {
+		if (!g_tbRows[i].bot && g_tbRows[i].acct) push(g_tbRows[i].acct);
+	}
+	for (int i = 1; i <= 32; ++i) {
+		PlayerInfo pi{};
+		if (!EngPlayerInfo(i, &pi) || PlayerInfoIsBot(pi)) continue;
+		uint32_t acct = 0;
+		memcpy(&acct, pi.pad1 + 36, sizeof(acct));
+		push(acct);
+	}
+	if (n <= 0) return;
+
+	// Ensure rows exist for newcomers without touching Steam yet.
+	for (int i = 0; i < n; ++i) TabAvatarAlloc(accts[i], now);
+
+	auto due = [&](const TabAvatar& a) -> bool {
+		return !a.retryAt || (LONG)(now - a.retryAt) >= 0;
+	};
+	// kTabAvRgba = pixels waiting on Surface upload only — do not spend Steam
+	// poll budget on it (UploadTick owns that). Pass0 = pending, pass1 = Ready refresh.
+	auto pollOne = [&](TabAvatar* a) {
 		a->lastUse = now;
-		if (a->state == kTabAvReady || a->state == kTabAvRgba) return false;
-		if (a->retryAt && (LONG)(now - a->retryAt) < 0) return false;
-		++work;
-		int w = 0, h = 0;
-		const int r = TabAvatarFetchOne(fr, ut, acct, uni, g_tbAvRgba[a - g_tbAv], &w, &h);
+		int w = 0, h = 0, img = 0;
+		const int r = TabAvatarFetchOne(fr, ut, a->acct, uni, g_tbAvRgba[a - g_tbAv], &w, &h, &img);
 		if (r == 1) {
+			const bool hadSteam = a->texPlus1 > 0
+				&& (a->state == kTabAvReady || a->state == kTabAvRgba);
+			const bool same = a->steamImg == img && hadSteam;
 			a->w = w;
 			a->h = h;
-			a->retryAt = 0;
-			a->state = kTabAvRgba;
+			a->steamImg = img;
+			a->retryAt = now + kTabAvRefreshMs;
+			if (!same) a->state = kTabAvRgba;
+		} else if (a->state == kTabAvReady || a->state == kTabAvRgba) {
+			a->retryAt = now + kTabAvRefreshMs; // keep last Steam tex — never demote to face
 		} else {
 			a->state = kTabAvPending;
 			a->retryAt = now + kTabAvTickMs;
 		}
-		return true;
 	};
 
-	for (int i = 0; i < g_tbRowN && i < kTabRowsMax && work < maxWork; ++i) {
-		if (g_tbRows[i].bot || !g_tbRows[i].acct) continue;
-		processAcct(g_tbRows[i].acct);
+	int work = 0;
+	const unsigned start = g_tbAvScanCursor;
+	for (int pass = 0; pass < 2 && work < maxWork; ++pass) {
+		for (int step = 0; step < n && work < maxWork; ++step) {
+			TabAvatar* a = TabAvatarFind(accts[(start + (unsigned)step) % (unsigned)n]);
+			if (!a || !due(*a)) continue;
+			if (pass == 0) {
+				if (a->state == kTabAvReady || a->state == kTabAvRgba) continue;
+			} else if (a->state != kTabAvReady) {
+				continue;
+			}
+			pollOne(a);
+			++work;
+		}
 	}
-	for (int i = 1; i <= 32 && work < maxWork; ++i) {
-		PlayerInfo pi{};
-		if (!EngPlayerInfo(i, &pi) || PlayerInfoIsBot(pi)) continue;
-		uint32_t acct = 0;
-		memcpy(&acct, pi.pad1 + 36, sizeof(acct)); // player_info_t::friendsID
-		processAcct(acct);
-	}
+	if (n > 0) g_tbAvScanCursor = (start + 1u) % (unsigned)n;
 }
 
 static void TabAvatarUploadTick(int budget = 1) {
@@ -48146,9 +48229,13 @@ static void ChapStatsAvatarFlush() {
 	TabAvatarUploadTick(2);
 }
 
+// Ready or Rgba-with-old-tex: keep showing Steam. Never flash back to s_panel
+// once a Steam texture has been uploaded. Pending (no tex yet) returns -1 → face.
 static int TabAvatarTex(uint32_t acct) {
 	const TabAvatar* a = TabAvatarFind(acct);
-	return (a && a->state == kTabAvReady && a->texPlus1 > 0) ? a->texPlus1 - 1 : -1;
+	if (!a || a->texPlus1 <= 0) return -1;
+	if (a->state == kTabAvReady || a->state == kTabAvRgba) return a->texPlus1 - 1;
+	return -1;
 }
 
 // ---- commands ----------------------------------------------------------------
@@ -48661,6 +48748,22 @@ static void TabBoardGather() {
 				++infHumans;
 			}
 		}
+	}
+	// Idle: the BOT row is already labeled「闲置：名字」. The leftover human
+	// survivor/dead-observer slot must not appear as a second row (spectators
+	// already skip via idleHumanUidKnown; survivor pass did not).
+	{
+		int kept = 0;
+		for (int i = 0; i < nSurv; ++i) {
+			TabBoardRow& r = g_tbRows[i];
+			if (!r.bot && idleHumanUidKnown(r.userid)) {
+				if (g_tbHumanN > 0) --g_tbHumanN;
+				continue;
+			}
+			if (kept != i) g_tbRows[kept] = r;
+			++kept;
+		}
+		nSurv = kept;
 	}
 	(void)infHumans;
 	// Free spectators: prefer CTerrorPlayerResource (connected + team 1). Entity
@@ -50505,6 +50608,25 @@ static int ChapStatsFaceTex(int ch) {
 	return -1;
 }
 
+// Steam if available; else s_panel face. No "?" letter in the avatar box —
+// solid fill only when both miss. Never replaces an already-uploaded Steam tex.
+static int ChapStatsAvatarOrFace(uint32_t acct, int ch, bool quiet) {
+	if (acct) {
+		const int steam = TabAvatarTex(acct);
+		if (steam >= 0) return steam;
+	}
+	if (ch < 0 || ch > 7) return -1;
+	if (!quiet) {
+		const int face = TeamHudBindFace(ch, false);
+		if (face >= 0) {
+			g_csFaceTex[ch] = face;
+			g_csFaceEpoch = g_sktFontEpoch;
+			return face;
+		}
+	}
+	return ChapStatsFaceTex(ch);
+}
+
 static void ChapStatsFreezeData(bool refreshPlayers) {
 	g_csFreezePending = false;
 	// Paint owns engine/entity reads. The round_start fallback can only freeze
@@ -50952,16 +51074,18 @@ static void ChapStatsOnToggle() {
 	if (g_optChapStats && g_optChapStatsScore) ChapStatsScoreLoad();
 }
 
-// Sole Steam-avatar driver while TAB / chapter stats are enabled: 1 poll +
-// 1 upload every 500 ms (late joiners get Request→Medium the same way as L4N).
+// Sole Steam-avatar driver while TAB / chapter stats are enabled: Paint-owned
+// Request+Medium poll. Pending-first, up to 6 polls / 100 ms; Ready refresh is
+// second pass only. Upload up to 2 RGBA textures per tick so a squad appears
+// together once Steam answers.
 static DWORD g_csAvAt = 0;
 static void ChapStatsAvatarPrefetch() {
 	if (!(g_optTabBoard || g_optChapStats)) return;
 	const DWORD now = GetTickCount();
 	if (g_csAvAt && (LONG)(now - g_csAvAt) < (LONG)kTabAvTickMs) return;
 	g_csAvAt = now;
-	TabAvatarFetch(1);
-	TabAvatarUploadTick(1);
+	TabAvatarFetch(6);
+	TabAvatarUploadTick(2);
 	if (g_optChapStats) ChapStatsPrefetchFaces();
 }
 
@@ -51379,24 +51503,10 @@ static bool ChapStatsPaintCards(const ChapStatsSet& S, const int* idx, int shown
 		TbFill(ax - U(3), ay - U(3), ax + av + U(3), ay + av + U(3), cr / 3 + 12, cg / 3 + 12, cb / 3 + 16, 255);
 		TbFill(ax - 1, ay - 1, ax + av + 1, ay + av + 1, 255, 255, 255, 46);
 		TbFill(ax, ay, ax + av, ay + av, 22, 24, 30, 255);
-		int tex = r.acct ? TabAvatarTex(r.acct) : -1;
-		if (tex < 0 && r.ch >= 0) {
-			if (!quiet) {
-				tex = TeamHudBindFace(r.ch, false);
-				if (tex >= 0 && r.ch < 8) {
-					g_csFaceTex[r.ch] = tex;
-					g_csFaceEpoch = g_sktFontEpoch;
-				}
-			} else {
-				tex = ChapStatsFaceTex(r.ch);
-			}
-		}
+		const int tex = ChapStatsAvatarOrFace(r.acct, r.ch, quiet);
 		if (tex >= 0) {
 			SurfColor(255, 255, 255, 255);
 			SurfDrawTextured(ax, ay, ax + av, ay + av, tex);
-		} else if (r.ch >= 0) {
-			TbFill(ax, ay, ax + av, ay + av, cr / 2, cg / 2, cb / 2, 255);
-			TbTextCenter(g_csFontName, ax + av / 2, ay + av / 2, g_csPxName, RGB(255, 255, 255), TabCharTag(r.ch));
 		}
 
 		wchar_t name[48]{};
@@ -51557,19 +51667,10 @@ static bool ChapStatsPaintCardGrid(const ChapStatsSet& S, const int* idx, int sh
 		const int ax = cx + U(42), ay = cy + U(10);
 		TbFill(ax - 1, ay - 1, ax + av + 1, ay + av + 1, 255, 255, 255, 42);
 		TbFill(ax, ay, ax + av, ay + av, 24, 28, 36, 255);
-		int tex = r.acct ? TabAvatarTex(r.acct) : -1;
-		if (tex < 0 && r.ch >= 0) {
-			if (!quiet) {
-				tex = TeamHudBindFace(r.ch, false);
-				if (tex >= 0 && r.ch < 8) { g_csFaceTex[r.ch] = tex; g_csFaceEpoch = g_sktFontEpoch; }
-			} else tex = ChapStatsFaceTex(r.ch);
-		}
+		const int tex = ChapStatsAvatarOrFace(r.acct, r.ch, quiet);
 		if (tex >= 0) {
 			SurfColor(255, 255, 255, 255);
 			SurfDrawTextured(ax, ay, ax + av, ay + av, tex);
-		} else if (r.ch >= 0) {
-			TbFill(ax, ay, ax + av, ay + av, GetRValue(role) / 2, GetGValue(role) / 2, GetBValue(role) / 2, 255);
-			TbTextCenter(g_csFontSmall, ax + av / 2, ay + av / 2, g_csPxSmall, text, TabCharTag(r.ch));
 		}
 		wchar_t name[48]{};
 		wcsncpy(name, r.display[0] ? r.display : (r.name[0] ? r.name : L"?"), 47);
@@ -51745,25 +51846,10 @@ static bool ChapStatsPaintTactical(const ChapStatsSet& S, const int* idx, int sh
 		const int ax = cx + U(58), ay = cy + U(5);
 		TbFill(ax - 1, ay - 1, ax + av + 1, ay + av + 1, 255, 255, 255, 42);
 		TbFill(ax, ay, ax + av, ay + av, 24, 28, 36, 255);
-		int tex = r.acct ? TabAvatarTex(r.acct) : -1;
-		if (tex < 0 && r.ch >= 0) {
-			if (!quiet) {
-				tex = TeamHudBindFace(r.ch, false);
-				if (tex >= 0 && r.ch < 8) {
-					g_csFaceTex[r.ch] = tex;
-					g_csFaceEpoch = g_sktFontEpoch;
-				}
-			} else {
-				tex = ChapStatsFaceTex(r.ch);
-			}
-		}
+		const int tex = ChapStatsAvatarOrFace(r.acct, r.ch, quiet);
 		if (tex >= 0) {
 			SurfColor(255, 255, 255, 255);
 			SurfDrawTextured(ax, ay, ax + av, ay + av, tex);
-		} else if (r.ch >= 0) {
-			TbFill(ax, ay, ax + av, ay + av, GetRValue(charColor) / 2,
-				GetGValue(charColor) / 2, GetBValue(charColor) / 2, 255);
-			TbTextCenter(g_csFontSmall, ax + av / 2, ay + av / 2, g_csPxSmall, cText, TabCharTag(r.ch));
 		}
 
 		const int scoreW = U(154);
@@ -51871,8 +51957,10 @@ static bool ChapStatsPaint(bool quiet) {
 		if (local > 0 && EngPlayerInfo(local, &pi)) selfUid = pi.userid;
 	}
 
-	// Rows: settle snapshot is already present-only. Live hold/preview still
-	// drops absent empty rows, but keeps absent rows that scored this chapter.
+	// Rows: settle snapshot is already present-only. Live hold/preview keeps
+	// absent humans that scored this chapter, but drops absent bots — idle
+	// takeover leaves Louis/Francis BOT rows with leftover kills that look like
+	// ghost bots next to the four humans still in the squad.
 	int idx[kCsRecMax];
 	int total = 0, humans = 0, bots = 0;
 	for (int i = 0; i < setN; ++i) {
@@ -51880,8 +51968,8 @@ static bool ChapStatsPaint(bool quiet) {
 		if (!r.survivor) continue;
 		if (quiet) {
 			if (!r.present) continue;
-		} else if (!r.present && !ChapStatsRecAny(r)) {
-			continue;
+		} else if (!r.present) {
+			if (r.bot || !ChapStatsRecAny(r)) continue;
 		}
 		if (g_chapStatsView == 1 && selfUid > 0 && r.userid != selfUid) continue;
 		idx[total++] = i;
@@ -52172,29 +52260,12 @@ static bool ChapStatsPaint(bool quiet) {
 			const int ax = x0 + U(54), ay = cy - avS / 2;
 			TbFill(ax - 1, ay - 1, ax + avS + 1, ay + avS + 1, 255, 255, 255, 40);
 			TbFill(ax, ay, ax + avS, ay + avS, 30, 36, 46, 255);
-			// Humans: Steam medium avatar. Bots: the same vgui/s_panel_* portrait
-			// TAB / teammate HUD use. Quiet settle cannot bind materials, so the
-			// ids must already be in g_csFaceTex (prefetch while in-game).
-			int tex = r.acct ? TabAvatarTex(r.acct) : -1;
-			if (tex < 0 && r.ch >= 0) {
-				if (!quiet) {
-					tex = TeamHudBindFace(r.ch, false);
-					if (tex >= 0 && r.ch < 8) {
-						g_csFaceTex[r.ch] = tex;
-						g_csFaceEpoch = g_sktFontEpoch;
-					}
-				} else {
-					tex = ChapStatsFaceTex(r.ch);
-				}
-			}
+			// Steam when Ready; else s_panel face (bots and pending humans). Never
+			// draw "?" in the avatar box; never demote an uploaded Steam tex.
+			const int tex = ChapStatsAvatarOrFace(r.acct, r.ch, quiet);
 			if (tex >= 0) {
 				SurfColor(255, 255, 255, 255);
 				SurfDrawTextured(ax, ay, ax + avS, ay + avS, tex);
-			} else if (r.ch >= 0) {
-				const COLORREF tc = TeamHudCharColor(r.ch);
-				TbFill(ax, ay, ax + avS, ay + avS, GetRValue(tc) / 2, GetGValue(tc) / 2, GetBValue(tc) / 2, 255);
-				TbTextCenter(g_csFontName ? g_csFontName : g_csFontSmall, ax + avS / 2, cy,
-					g_csPxName > 0 ? g_csPxName : g_csPxSmall, RGB(255, 255, 255), TabCharTag(r.ch));
 			}
 		}
 		{

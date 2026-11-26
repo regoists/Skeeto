@@ -1,53 +1,30 @@
-【！！！重要：1.x → 2.x 必须手动迁移一次，这是一次架构级调整的破坏性更新，所以无法自动升级。1.x版本有较为严重的性能漏洞和缺陷，建议所有skeeto用户立即升级到2.x架构。】
-【!!! IMPORTANT: Upgrading from 1.x to 2.x requires a one-time manual migration. This is a breaking update involving an architectural overhaul, so automatic upgrades are not possible. Version 1.x contains relatively severe performance issues and defects. All Skeeto users are strongly advised to upgrade to the 2.0 architecture immediately.】
-
-如何从1.x版本迁移到2.x版本：
-工坊下载完成后，先退出游戏。可将 left4dead2\addons\workshop\3787239937.vpk 复制到游戏目录外，把副本的后缀由 .vpk改为 .zip 后解压。
-然后双击包内的“Setup_安装 维护 卸载.bat”，输入“1”并回车，按提示核对游戏根目录，确认脚本提示安装成功。迁移后可直接从 Steam 启动，不再使用旧 Skeeto 的 BAT 或独立启动器。旧版 ini 中仍需要的启动项，请自行迁移到 Steam 客户端的启动选项。
-How to migrate from version 1.x to 2.x:
-Once the Workshop download is complete, exit the game first. Copy left4dead2\addons\workshop\3787239937.vpk to a location outside the game directory, rename the copied file's extension to .zip, and extract it.
-Then double-click Setup_安装 维护 卸载.bat inside the extracted package, enter 1 and press Enter. Follow the prompts to verify the game's root directory and confirm that the script reports a successful installation.
-After migration, you can launch the game directly through Steam. Do not use the old Skeeto BAT file or standalone launcher anymore. If you still need any launch options from the old INI file, manually transfer them to the launch options in the Steam client.
-也可以手动迁移：先用旧版安装包中的“卸载 Uninstall Skeeto.bat”卸载 Skeeto，出现保留设置提示时选择 Y；也可自行移除确认属于旧 Skeeto 的文件。保留 skeeto_setting.ini、自定义素材等。（旧版设置可以被兼容）
-然后将新版包的全部内容解压到游戏根目录。旧版 ini 中仍需要的启动项，请自行迁移到 Steam 客户端的启动选项。
-You can also migrate manually: First, use 卸载 Uninstall Skeeto.bat from the old installation package to uninstall Skeeto. When prompted to keep your settings, select Y. Alternatively, you can manually remove files that you have confirmed belong to the old version of Skeeto. Keep skeeto_setting.ini, custom assets, and other personal files. (Old settings are compatible with the new version.)
-Then extract all contents of the new package into the game's root directory. If you still need any launch options from the old INI file, manually transfer them to the launch options in the Steam client.
-
 项目开源链接：https://github.com/regoists/Skeeto
 
-## 2.2.22（2026-11-25）
+## 2.2.22（2026-11-25）——>感谢 github @whistle003 (Bilibili @西红柿炒蕃茄吖) 通过 GitHub PR #14 提供的接口校验与调用位置更新。Thanks to GitHub @whistle003 (Bilibili @西红柿炒蕃茄吖) for providing the interface validation and call-site updates via GitHub PR #14.
 	Skeeto核心：
 新增：
 - 战斗增强与视听优化新增「自由镜头」（Free Camera）：镜头与身体脱钩飞行（WASD / Space / Ctrl·Shift），默认关；可在键盘/鼠标绑定 skeeto_freecam，或在设置页立即切换。
 - Vscript 功能客户端化新增「更好的第一人称身体」（Lux's Survivor Legs Advanced）：默认关；高度偏移默认 5；藏头/手臂、第三人称兼容、同帧动态锚点与按 MOD 校准（保存在 left4dead2/skeeto/fpb/profiles.ini）。
 修改：
-- Tank / Witch 金色奖杯改为与 Boss 伤害排行相同的 checkpoint 差值：挂在本次贡献最高的队友头上（不画在自己头上；若第一是自己则取下一名可见队友，否则回退击杀者）。
+- Tank / Witch 金色奖杯改为与 Boss 伤害排行相同的 checkpoint 差值：挂在本次贡献最高的队友头上；贡献第一是自己则不显示。
 修复：
-- 适配《求生之路 2》Steam Build 26770911。物资雷达可再次识别物资，并在对应的屏幕位置显示图标和文字。
-- 修复自定义队友头顶名字与原版名字重叠的问题。闲置后重新接管角色时，会恢复闲置前的第一人称或越肩视角。
-- 恢复“提前显示游戏画面”和“取消本地开局固定等待”。后者仅对单人游戏或自己主持的房间生效。
-- 修复异步加载后部分地图静态模型显示异常的问题，恢复音频缓存外置。文件系统接口被其他组件释放后，重新启用“跳过连续无关 VPK 包”即可重试。
+- 适配《求生之路 2》Steam Build 26770911。
+- 对齐 2026-11-25 L4D2 小更新后的 client/engine/server/studiorender：物资雷达、第三人称弹道修正、自由镜头/第一人称身体门控、闲置恢复人称、队友头顶原版名控制、加载提速（提前显示/本地等待/异步网格）、外置声音缓存等按新 PE stamp 与代码点重定位。
 - 队友血条/世界名「闲置：真人名」：只按 bot userid 关联，实体槽复用不再串成别人的名字；人物 ID / 世界名开启时也会记录闲置映射。
 - 多 Tank 时伤害数字归因：优先当前血条锁定的 Tank，再按近期近距弹着与准星锥选择，避免挂到场上另一只。
-- 自由镜头飞行中退回主菜单或换服时，可能因旧视角写入导致的闪退。
-- TAB / 章节统计 Steam 头像对齐 L4N（left4neko）：引擎 GetSteamAPIContext → RequestUserInformation → GetMediumFriendAvatar；修后进玩家一直「？」。按 TAB 不打 Steam；Paint 每 500ms 最多 1 拉 1 传。
-- 对齐 2026-11-25 L4D2 小更新后的 client/engine/server/studiorender：物资雷达、第三人称弹道修正、自由镜头/第一人称身体门控、闲置恢复人称、队友头顶原版名控制、加载提速（提前显示/本地等待/异步网格）、外置声音缓存等按新 PE stamp 与代码点重定位。
+- TAB / 章节统计 Steam 头像：引擎 GetSteamAPIContext → RequestUserInformation → GetMediumFriendAvatar；未就绪时显示角色脸（s_panel）而非「？」；已显示的 Steam 头像不会回退成角色脸；pending 优先轮询并在等待期持续请求 Medium；直播列表不再列出已离场的幽灵 BOT。
 	Skeeto Core:
 Added:
-- Combat visuals: Free Camera — fly the view while the body stays put (WASD / Space / Ctrl·Shift); off by default. Bind skeeto_freecam or toggle from the settings page.
-- Skeetoscript: Better first-person body (Lux's Survivor Legs Advanced) — off by default; height offset default 5; hide head/arms, third-person compatibility, live dynamic anchor, and per-MOD calibration in left4dead2/skeeto/fpb/profiles.ini.
+- Combat Enhancement & Audio-Visual Optimization adds "Free Camera": the camera detaches from the body and flies (WASD / Space / Ctrl·Shift), disabled by default; can bind skeeto_freecam in keyboard/mouse, or toggle immediately on the settings page.
+- Vscript Feature Clientization adds "Better First-Person Body" (Lux's Survivor Legs Advanced): disabled by default; height offset default 5; hide head/arms, third-person compatibility, same-frame dynamic anchor and per-MOD calibration (saved in left4dead2/skeeto/fpb/profiles.ini).
 Changed:
-- Tank / Witch gold trophies now use the same checkpoint damage deltas as the Boss damage board: shown above the highest contributor this fight (never above you; if you are first, the next visible teammate; else the killer).
+- Tank / Witch golden trophies changed to the same checkpoint difference as the Boss damage ranking: attached to the teammate with the highest contribution; if you are #1, show nothing.
 Fixed:
-- Updated for Left 4 Dead 2 Steam build 26770911. The supply radar once again identifies items and draws their icons and text at the correct screen positions.
-- Fixed overlapping stock and custom teammate names. Taking control after going idle restores the previous first-person or over-the-shoulder camera.
-- Restored early scene display and the option to skip the fixed start delay. The latter applies to single-player and locally hosted games.
-- Fixed static props rendering incorrectly after asynchronous loading and restored audio cache offload. If another component releases the filesystem interface, toggling the option to skip unrelated VPKs retries it.
-- Team/world "Idle: name" mapping keys only by bot userid so recycled entity slots no longer show another player's name; idle links also seed when native/world name HUDs are on.
-- Multi-Tank damage-number attribution: prefer the locked health-bar Tank, then a nearby recent impact / aim cone, instead of another alive Tank.
-- Crash when leaving Free Camera flight to the main menu or joining another server (stale view write).
-- Steam avatars on TAB / chapter stats follow L4N (left4neko): engine GetSteamAPIContext → RequestUserInformation → GetMediumFriendAvatar; fixes late joiners stuck on "?". TAB key does not call Steam; Paint does at most one fetch and one upload per 500 ms.
-- Retarget after the 2026-11-25 L4D2 small update (client/engine/server/studiorender): supply radar, third-person aim, FreeCam/FPB gates, idle person restore, stock overhead-name control, fast-load early view/local wait/async mesh, and external sound cache follow the new PE stamps and relocated code sites.
+- Adapted to Left 4 Dead 2 Steam Build 26770911. 
+- Aligned with client/engine/server/studiorender after the 2026-11-25 L4D2 minor update: item radar, third-person ballistics correction, free camera/first-person body gating, idle first-person restore, vanilla name control above teammates' heads, loading speedup (early display/local wait/async grid), external sound cache, etc. relocated by new PE stamp and code points.
+- Teammate health bar/world name "Idle: real player name": associated only by bot userid, entity slot reuse no longer cross-links to someone else's name; idle mapping is also recorded when character ID / world name is enabled.
+- Multi-Tank damage number attribution: prefer the Tank currently locked by the health bar, then select by recent close-range impact and crosshair cone, to avoid attaching to another Tank on the field.
+- TAB / chapter-stats Steam avatars: engine GetSteamAPIContext → RequestUserInformation → GetMediumFriendAvatar; show survivor s_panel faces instead of "?" while pending; never demote an already-shown Steam avatar back to a face; pending-first polling keeps calling Medium while waiting; live lists no longer show absent ghost BOT rows.
 
 ## 2.2.21（2026-11-21）
 	Skeeto核心：

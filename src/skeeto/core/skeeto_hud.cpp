@@ -227,7 +227,6 @@ void TeamHudPaintCard(const TeamHudSlot& s, int layoutSlot, int x, int y, int w,
 const wchar_t* TeamHudCapVerb(int cap, bool hanging);
 void CapHudEnsureFonts();
 void ReviveHudEnsureFonts();
-void AmmoHudEnsureFonts();
 void ItemHudSample();
 void WitchStartleFillName(int entIdx, void* e, wchar_t* out, int cap);
 void WitchStartleHudEnsureFonts();
@@ -6502,12 +6501,14 @@ static int BossDmgBuildBoard(bool tank, DWORD now, bool fillBoard) {
 		for (; j >= 0 && all[j].damage < key.damage; --j) all[j + 1] = all[j];
 		all[j + 1] = key;
 	}
-	// World trophies skip the local pawn (same as other world notices).
+	// World trophy only on the true damage leader. Local #1 → no trophy (do not
+	// promote #2). Killer fallback is suppressed by returning -1 in that case.
 	int topEnt = 0;
-	for (int i = 0; i < total; ++i) {
-		if (!WorldNoticeSurvivorEnt(all[i].ent)) continue;
-		topEnt = all[i].ent;
-		break;
+	if (total > 0) {
+		if (all[0].local || all[0].ent == local)
+			topEnt = -1;
+		else if (WorldNoticeSurvivorEnt(all[0].ent))
+			topEnt = all[0].ent;
 	}
 	if (fillBoard) {
 		int boardN = total;
@@ -6562,8 +6563,17 @@ static void BossDmgBoardPump(DWORD now) {
 		if (!wantBoard && !wantTrophy) continue;
 		const int topEnt = BossDmgBuildBoard(tank, now, wantBoard);
 		if (wantTrophy) {
-			const int fallback = tank ? g_worldTankTrophyFallback : g_worldWitchTrophyFallback;
-			WorldNoticeArmBossTrophy(tank, topEnt, fallback);
+			// topEnt < 0: local was damage #1 → show nothing (no #2, no killer).
+			// topEnt == 0: no ranked non-local leader → optional killer fallback.
+			// topEnt > 0: that survivor.
+			if (topEnt >= 0) {
+				const int fallback = tank ? g_worldTankTrophyFallback : g_worldWitchTrophyFallback;
+				WorldNoticeArmBossTrophy(tank, topEnt, fallback);
+			} else if (tank) {
+				g_worldTankTrophyFallback = 0;
+			} else {
+				g_worldWitchTrophyFallback = 0;
+			}
 		}
 	}
 }
@@ -6870,22 +6880,6 @@ void IgniteHudPaint() {
 	}
 }
 
-void AmmoHudEnsureFonts() {
-	ClampAmmoHud();
-	const int flags = kFontFlagAntiAlias | kFontFlagDropShadow | kFontFlagOutline;
-	int sm = g_ammoHudFont * 11 / 18;
-	if (sm < 16) sm = 16;
-	const int mainWant = HudFontPx(g_ammoHudFont), smWant = HudFontPx(sm);
-	if (!g_ammoFontId || g_ammoFontTall != mainWant) {
-		unsigned long f = SurfMakeYahei(mainWant, 800, flags);
-		if (f) { g_ammoFontId = f; g_ammoFontTall = mainWant; }
-	}
-	if (!g_ammoFontSmId || g_ammoFontSmTall != smWant) {
-		unsigned long f = SurfMakeYahei(smWant, 650, flags);
-		if (f) { g_ammoFontSmId = f; g_ammoFontSmTall = smWant; }
-	}
-}
-
 void AmmoHudPaintHud() {
 	const bool preview = HudMenuPage(21);
 	if (!preview && IdleSwapHudQuietActive()) return;
@@ -6896,12 +6890,27 @@ void AmmoHudPaintHud() {
 	if (!SkeetoFeaturesOn()) return;
 	if (!g_engine || !EngInGame() || EngDrawingLoading()) return;
 	if (!MenuEnsureSurf()) return;
-	AmmoHudEnsureFonts();
-	if (!g_ammoFontId) return;
+	ClampAmmoHud();
 	int sw = 0, sh = 0;
 	if (!SurfGetScreenSize(&sw, &sh)) return;
 
 	const int sc = g_ammoHudScale;
+	// Same base as the adjustable font: layout_font used to freeze panel size while
+	// draw ignored scale, so 整体% and Shift 字号 could leave text tiny or stuck.
+	g_ammoHudLayoutFont = g_ammoHudFont;
+	const int mainPx = HudScalePx(g_ammoHudFont, sc);
+	const int smPx = HudScalePx(HudSmLayoutBase(g_ammoHudFont), sc);
+	static unsigned long s_ammoMainId = 0;
+	static int s_ammoMainPx = 0;
+	static unsigned long s_ammoSmId = 0;
+	static int s_ammoSmPx = 0;
+	const unsigned long mainFont = HudAcquireLayoutFont(mainPx, &s_ammoMainId, &s_ammoMainPx, 800);
+	const unsigned long smFont = HudAcquireLayoutFont(smPx, &s_ammoSmId, &s_ammoSmPx, 650);
+	if (!mainFont) return;
+	g_ammoFontId = mainFont;
+	g_ammoFontTall = s_ammoMainPx > 0 ? s_ammoMainPx : mainPx;
+	g_ammoFontSmId = smFont;
+	g_ammoFontSmTall = smFont ? (s_ammoSmPx > 0 ? s_ammoSmPx : smPx) : 0;
 
 	int clip = -1, ammo = -1, secClip = -1;
 	int priWepIdx = 0, secWepIdx = 0;
@@ -6972,28 +6981,14 @@ void AmmoHudPaintHud() {
 	const int secMaxClip = drawSec ? (secWepIdx > 0 ? WepClipCapResolve(secWepIdx, secClip) : 15) : 0;
 	const COLORREF secCol = AmmoHudClipColor(secClip, secMaxClip, RGB(140, 190, 220));
 
-	const int clipW = (drawPri && clipBuf[0]) ? SurfTextWFont(g_ammoFontId, clipBuf) : 0;
-	const int ammoW = (ammoBuf[0] && g_ammoFontSmId) ? SurfTextWFont(g_ammoFontSmId, ammoBuf) : 0;
-	const unsigned long secFont = drawPri ? (g_ammoFontSmId ? g_ammoFontSmId : g_ammoFontId)
-		: g_ammoFontId;
+	const int clipW = (drawPri && clipBuf[0]) ? SurfTextWFont(mainFont, clipBuf) : 0;
+	const int ammoW = (ammoBuf[0] && smFont) ? SurfTextWFont(smFont, ammoBuf) : 0;
+	const unsigned long secFont = drawPri ? (smFont ? smFont : mainFont) : mainFont;
 	const int secW = (secBuf[0] && secFont) ? SurfTextWFont(secFont, secBuf) : 0;
 
-	const int layoutMainPx = HudScalePx(g_ammoHudLayoutFont, sc);
-	const int layoutSmPx = HudScalePx(HudSmLayoutBase(g_ammoHudLayoutFont), sc);
-	static unsigned long s_ammoLayoutMainId = 0;
-	static int s_ammoLayoutMainPx = 0;
-	static unsigned long s_ammoLayoutSmId = 0;
-	static int s_ammoLayoutSmPx = 0;
-	unsigned long layoutMainFont = HudAcquireLayoutFont(layoutMainPx, &s_ammoLayoutMainId, &s_ammoLayoutMainPx, 800);
-	unsigned long layoutSmFont = HudAcquireLayoutFont(layoutSmPx, &s_ammoLayoutSmId, &s_ammoLayoutSmPx, 650);
-	const int layoutClipW = (drawPri && clipBuf[0] && layoutMainFont) ? SurfTextWFont(layoutMainFont, clipBuf) : 0;
-	const int layoutAmmoW = (ammoBuf[0] && layoutSmFont) ? SurfTextWFont(layoutSmFont, ammoBuf) : 0;
-	const unsigned long layoutSecFont = drawPri ? (layoutSmFont ? layoutSmFont : layoutMainFont) : layoutMainFont;
-	const int layoutSecW = (secBuf[0] && layoutSecFont) ? SurfTextWFont(layoutSecFont, secBuf) : 0;
-
 	const int gap = HudScalePx(8, sc);
-	const int panelW = layoutClipW + (layoutAmmoW ? gap + layoutAmmoW : 0) + layoutSecW;
-	const int panelH = layoutMainPx + HudScalePx(8, sc);
+	const int panelW = clipW + (ammoW ? gap + ammoW : 0) + secW;
+	const int panelH = g_ammoFontTall + HudScalePx(8, sc);
 
 	if (!g_ammoHudAbs) {
 		g_ammoHudOffX = sw / 2 + 48;
@@ -7005,22 +7000,22 @@ void AmmoHudPaintHud() {
 
 	int cx = x;
 	if (drawPri && clipBuf[0]) {
-		SurfTextAt(g_ammoFontId, cx, y, clipCol, clipBuf);
+		SurfTextAt(mainFont, cx, y, clipCol, clipBuf);
 		cx += clipW;
-		if (ammoBuf[0] && g_ammoFontSmId) {
+		if (ammoBuf[0] && smFont) {
 			int ay = y + (g_ammoFontTall - g_ammoFontSmTall);
 			if (ay < y) ay = y;
-			SurfTextAt(g_ammoFontSmId, cx + gap, ay, ammoCol, ammoBuf);
+			SurfTextAt(smFont, cx + gap, ay, ammoCol, ammoBuf);
 			cx += gap + ammoW;
 		}
-		const int uy = y + (g_ammoFontTall > 0 ? g_ammoFontTall : g_ammoHudFont) + 1;
+		const int uy = y + g_ammoFontTall + 1;
 		const int cr = GetRValue(clipCol), cg = GetGValue(clipCol), cb = GetBValue(clipCol);
 		SurfColor(cr, cg, cb, 150);
 		SurfFill(x, uy, x + clipW, uy + HudScalePx(2, sc));
 	}
 	if (drawSec && secBuf[0] && secFont) {
 		int ay = y;
-		if (drawPri && g_ammoFontSmId && secFont == g_ammoFontSmId) {
+		if (drawPri && smFont && secFont == smFont) {
 			ay = y + (g_ammoFontTall - g_ammoFontSmTall);
 			if (ay < y) ay = y;
 		}
