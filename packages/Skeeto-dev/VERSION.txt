@@ -1,5 +1,5 @@
-Skeeto 2.2.22
-released=2026-11-25
-semver=2.2.22
+Skeeto 2.2.23
+released=2026-11-27
+semver=2.2.23
 module=steam-bootstrap-transactional-update
-note=L4D2 build 26770911 restore; Free Camera; better FPB; TAB/chapstats Steam avatars (pending face fallback, no demotion, ghost BOT filter)
+note=FPB hide body on ladders; TAB temp-HP hatch + total(a+b); TAB/chapstats Steam avatars via steam_api with bind retry

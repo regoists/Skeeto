@@ -1,5 +1,21 @@
 项目开源链接：https://github.com/regoists/Skeeto
 
+## 2.2.23（2026-11-27）
+	Skeeto核心：
+新增：
+- 更好的第一人称身体：爬梯时隐藏第一人称身体（默认开，可关；与爬梯脚步声开关独立）。
+修改：
+- TAB 计分面板虚血改为琥珀色斜纹柱段；数字显示为「总血量 (实血+虚血)」，虚血数字为黄色。
+修复：
+- TAB / 章节统计 Steam 头像改走与主菜单相同的 steam_api 导出；steam_api 尚未加载时可重试绑定；缺少 RequestUserInformation 时不绑定，避免灰色「?」被固化。
+	Skeeto Core:
+Added:
+- Better first-person body: hide the first-person body while climbing ladders (on by default, can be turned off; independent of the ladder footstep option).
+Changed:
+- TAB scoreboard temp health uses an amber hatched segment; the number shows "total (solid+temp)", with the temp digit in yellow.
+Fixed:
+- TAB / chapter-stats Steam avatars use the same steam_api exports as the main menu; binding retries while steam_api is not yet loaded; binding requires RequestUserInformation so a grey "?" is not committed early.
+
 ## 2.2.22（2026-11-25）——>感谢 github @whistle003 (Bilibili @西红柿炒蕃茄吖) 通过 GitHub PR #14 提供的接口校验与调用位置更新。Thanks to GitHub @whistle003 (Bilibili @西红柿炒蕃茄吖) for providing the interface validation and call-site updates via GitHub PR #14.
 	Skeeto核心：
 新增：

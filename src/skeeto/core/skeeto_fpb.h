@@ -28,6 +28,7 @@ struct Settings {
 	bool hideHead = true;
 	bool hideArms = true;
 	bool thirdPersonCompat = false; // when on, skip decorate/gate outside first person
+	bool hideOnLadder = true;       // default on: close FPB gate while m_MoveType == ladder
 	bool dynamicAnchor = true;      // VE default: align body to live camera each Studio draw
 	bool followCameraYaw = true;
 	float forward = -13.f;

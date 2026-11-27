@@ -5009,6 +5009,7 @@ void SaveSettings() {
 	fprintf(f, "script_fpb_hide_head=%d\n", g_fpb.hideHead ? 1 : 0);
 	fprintf(f, "script_fpb_hide_arms=%d\n", g_fpb.hideArms ? 1 : 0);
 	fprintf(f, "script_fpb_tp_compat=%d\n", g_fpb.thirdPersonCompat ? 1 : 0);
+	fprintf(f, "script_fpb_hide_ladder=%d\n", g_fpb.hideOnLadder ? 1 : 0);
 	fprintf(f, "script_fpb_dynamic=%d\n", g_fpb.dynamicAnchor ? 1 : 0);
 	fprintf(f, "script_fpb_follow_yaw=%d\n", g_fpb.followCameraYaw ? 1 : 0);
 	fprintf(f, "script_fpb_forward=%.3f\n", g_fpb.forward);
@@ -6220,6 +6221,7 @@ static bool LoadSettingsClientUxLine(const char* line, bool* hadDirectorHud) {
 	if (sscanf(line, "script_fpb_hide_head=%d", &v) == 1) { g_fpb.hideHead = v != 0; return true; }
 	if (sscanf(line, "script_fpb_hide_arms=%d", &v) == 1) { g_fpb.hideArms = v != 0; return true; }
 	if (sscanf(line, "script_fpb_tp_compat=%d", &v) == 1) { g_fpb.thirdPersonCompat = v != 0; return true; }
+	if (sscanf(line, "script_fpb_hide_ladder=%d", &v) == 1) { g_fpb.hideOnLadder = v != 0; return true; }
 	if (sscanf(line, "script_fpb_dynamic=%d", &v) == 1) { g_fpb.dynamicAnchor = v != 0; return true; }
 	if (sscanf(line, "script_fpb_follow_yaw=%d", &v) == 1) { g_fpb.followCameraYaw = v != 0; return true; }
 	{
@@ -27364,7 +27366,7 @@ static const FreeCamMenuItem* FreeCamMenuItemAt(int digit) {
 }
 
 enum class FpbMenuAction : unsigned char {
-	Toggle, HideHead, HideArms, TpCompat, OpenDynamic, OpenPos, OpenDiag,
+	Toggle, HideHead, HideArms, TpCompat, HideLadder, OpenDynamic, OpenPos, OpenDiag,
 	DynamicToggle, FollowYaw, FallbackEye, YawTrim, BindModel, EraseModel,
 	Forward, Right, Up, Step, ResetPos
 };
@@ -27374,9 +27376,10 @@ static constexpr FpbMenuItem kFpbMenuItems[] = {
 	{UiId::FpbHideHead, L"[2] 隐藏头部骨骼 %s", FpbMenuAction::HideHead},
 	{UiId::FpbHideArms, L"[3] 隐藏手臂骨骼 %s", FpbMenuAction::HideArms},
 	{UiId::FpbTpCompat, L"[4] 第三人称视角兼容 %s", FpbMenuAction::TpCompat},
-	{UiId::FpbOpenDynamic, L"[5] 动态身体定位 / 校准 【进入设置】", FpbMenuAction::OpenDynamic},
-	{UiId::FpbOpenPos, L"[6] 模型位置 / 前后/左右/高度 【进入设置】", FpbMenuAction::OpenPos},
-	{UiId::FpbOpenDiag, L"[7] 运行状态与诊断 【进入设置】", FpbMenuAction::OpenDiag},
+	{UiId::FpbHideLadder, L"[5] 爬梯时隐藏第一人称身体 %s", FpbMenuAction::HideLadder},
+	{UiId::FpbOpenDynamic, L"[6] 动态身体定位 / 校准 【进入设置】", FpbMenuAction::OpenDynamic},
+	{UiId::FpbOpenPos, L"[7] 模型位置 / 前后/左右/高度 【进入设置】", FpbMenuAction::OpenPos},
+	{UiId::FpbOpenDiag, L"[8] 运行状态与诊断 【进入设置】", FpbMenuAction::OpenDiag},
 };
 static constexpr FpbMenuItem kFpbDynamicMenuItems[] = {
 	{UiId::FpbDynamic, L"[1] 动态身体定位 %s", FpbMenuAction::DynamicToggle},
@@ -33371,6 +33374,10 @@ static void MenuPaintEngine() {
 				case FpbMenuAction::TpCompat:
 					swprintf_s(buf, 192, UiText(item->id, item->text), onoff(g_fpb.thirdPersonCompat));
 					color = col(g_fpb.thirdPersonCompat);
+					break;
+				case FpbMenuAction::HideLadder:
+					swprintf_s(buf, 192, UiText(item->id, item->text), onoff(g_fpb.hideOnLadder));
+					color = col(g_fpb.hideOnLadder);
 					break;
 				case FpbMenuAction::OpenDynamic:
 				case FpbMenuAction::OpenPos:
@@ -41740,6 +41747,9 @@ static void MenuProcessKeyImpl(int digit) {
 			g_fpb.thirdPersonCompat = !g_fpb.thirdPersonCompat;
 			g_fpbViewLatch.Reset();
 			break;
+		case FpbMenuAction::HideLadder:
+			g_fpb.hideOnLadder = !g_fpb.hideOnLadder;
+			break;
 		case FpbMenuAction::OpenDynamic:
 			g_menuPage = kMenuPageFpbDynamic;
 			g_menuSub = 0;
@@ -47973,16 +47983,14 @@ static void* TabPrEntity() {
 }
 
 // ---- Steam avatars -----------------------------------------------------------
-// Proven path = left4neko.dll player list (SHA256 f6b519b7…8428746d), not flat steam_api:
-//   engine GetSteamAPIContext (v170) → friends@+8, utils@+0xC
-//   RequestUserInformation (friends+0x94) + GetMedium (+0x8c) every pending poll
-//   GetImageSize (+0x14) / GetImageRGBA (+0x18) → 64×64 into cache → Surface upload
-// SteamID high: Individual + instance 1 + GetConnectedUniverse (Public=1 → 0x01100001).
-// Always call Medium while pending (Steam loads the bitmap on that poll). Commit RGBA
-// only when Request returns false — committing while Request is true locked in the
-// grey "?" default. Until commit, the board draws s_panel faces (looks like "bot"
-// portraits); that is the intentional interim, not a permanent miss.
-// After Ready, slow-recheck Medium so a later custom image id can replace the first.
+// Same steam_api.dll flat exports as the custom main-menu friends portraits
+// (proven live on this client). Engine GetSteamAPIContext thiscall kept locking
+// every row on s_panel faces: Request never cleared / Medium never committed.
+//   SteamAPI_SteamFriends_v017 / SteamUtils_v010
+//   RequestUserInformation → GetMedium (+Small) → GetImageSize / GetImageRGBA
+// SteamID64 = friendsID | ((universe<<24|0x00100001) << 32). Public → 0x01100001.
+// Commit only when Request returns false (persona ready); while pending the board
+// shows s_panel faces. Once a Steam tex is uploaded it is never demoted to face.
 // One Paint owner (ChapStatsAvatarPrefetch). TAB/key paths never call Steam.
 enum { kTabAvPending = 1, kTabAvRgba, kTabAvReady };
 struct TabAvatar {
@@ -48003,19 +48011,24 @@ static TabAvatar g_tbAv[kTabAvMax];
 static unsigned char g_tbAvRgba[kTabAvMax][kTabAvPx * kTabAvPx * 4];
 static int g_tbSteamUniverse = 0;
 
-using TabSteamReqFn = bool(__thiscall*)(void*, uint32_t, uint32_t, bool);
-using TabSteamAvFn = int(__thiscall*)(void*, uint32_t, uint32_t);
-using TabSteamSizeFn = bool(__thiscall*)(void*, int, uint32_t*, uint32_t*);
-using TabSteamRgbaFn = bool(__thiscall*)(void*, int, uint8_t*, int);
-using TabSteamUniFn = int(__thiscall*)(void*);
+using TabSteamFriendsFn = void*(__cdecl*)();
+using TabSteamUtilsFn = void*(__cdecl*)();
+using TabSteamReqFn = bool(__cdecl*)(void*, uint64_t, bool);
+using TabSteamAvFn = int(__cdecl*)(void*, uint64_t);
+using TabSteamSizeFn = bool(__cdecl*)(void*, int, uint32_t*, uint32_t*);
+using TabSteamRgbaFn = bool(__cdecl*)(void*, int, unsigned char*, int);
+using TabSteamUniFn = int(__cdecl*)(void*);
 struct TabSteamFns {
+	TabSteamFriendsFn friends = nullptr;
+	TabSteamUtilsFn utils = nullptr;
 	TabSteamReqFn req = nullptr;
 	TabSteamAvFn medium = nullptr;
-	TabSteamAvFn smallAv = nullptr; // fallback when medium is not ready yet (avoid Windows `small` macro)
+	TabSteamAvFn smallAv = nullptr; // avoid Windows `small` macro
 	TabSteamSizeFn size = nullptr;
 	TabSteamRgbaFn rgba = nullptr;
 	TabSteamUniFn universe = nullptr;
 	bool ready = false;
+	bool bindFailed = false;
 };
 static TabSteamFns g_tabSteamFns{};
 static unsigned g_tbAvScanCursor = 0;
@@ -48045,46 +48058,36 @@ static TabAvatar* TabAvatarAlloc(uint32_t acct, DWORD now) {
 	return &a;
 }
 
-static bool TabSteamIfaces(void** friends, void** utils) {
-	*friends = nullptr;
-	*utils = nullptr;
-	if (!g_engine || !IfaceAlive(g_engine)) return false;
-	using CtxFn = void*(__thiscall*)(void*);
-	auto fn = (CtxFn)VGet(g_engine, 170);
-	if (!fn || !IsExec((void*)fn)) return false;
-	uint8_t* ctx = nullptr;
-	__try { ctx = (uint8_t*)fn(g_engine); }
-	__except (EXCEPTION_EXECUTE_HANDLER) { return false; }
-	if (!ctx || !PtrCommitted(ctx) || !PtrCommitted(ctx + 0xC)) return false;
-	void* fr = *(void**)(ctx + 0x8);
-	void* ut = *(void**)(ctx + 0xC);
-	if (!fr || !ut || !IfaceAlive(fr) || !IfaceAlive(ut)) return false;
-	if (!g_tabSteamFns.ready) {
-		TabSteamFns f{};
-		f.req = (TabSteamReqFn)VGet(fr, 37);
-		f.medium = (TabSteamAvFn)VGet(fr, 35);
-		f.smallAv = (TabSteamAvFn)VGet(fr, 34); // optional; Medium-first still matches L4N
-		f.size = (TabSteamSizeFn)VGet(ut, 5);
-		f.rgba = (TabSteamRgbaFn)VGet(ut, 6);
-		f.universe = (TabSteamUniFn)VGet(ut, 2);
-		if (!f.req || !f.medium || !f.size || !f.rgba
-			|| !IsExec((void*)f.req) || !IsExec((void*)f.medium)
-			|| !IsExec((void*)f.size) || !IsExec((void*)f.rgba))
-			return false;
-		if (f.smallAv && !IsExec((void*)f.smallAv)) f.smallAv = nullptr;
-		if (f.universe && !IsExec((void*)f.universe)) f.universe = nullptr;
-		f.ready = true;
-		g_tabSteamFns = f;
+static bool TabSteamBind() {
+	if (g_tabSteamFns.ready) return true;
+	if (g_tabSteamFns.bindFailed) return false;
+	HMODULE api = GetModuleHandleW(L"steam_api.dll");
+	// Missing module is timing, not a permanent ABI failure — retry later.
+	if (!api) return false;
+	TabSteamFns f{};
+	f.friends = (TabSteamFriendsFn)GetProcAddress(api, "SteamAPI_SteamFriends_v017");
+	f.utils = (TabSteamUtilsFn)GetProcAddress(api, "SteamAPI_SteamUtils_v010");
+	f.req = (TabSteamReqFn)GetProcAddress(api, "SteamAPI_ISteamFriends_RequestUserInformation");
+	f.medium = (TabSteamAvFn)GetProcAddress(api, "SteamAPI_ISteamFriends_GetMediumFriendAvatar");
+	f.smallAv = (TabSteamAvFn)GetProcAddress(api, "SteamAPI_ISteamFriends_GetSmallFriendAvatar");
+	f.size = (TabSteamSizeFn)GetProcAddress(api, "SteamAPI_ISteamUtils_GetImageSize");
+	f.rgba = (TabSteamRgbaFn)GetProcAddress(api, "SteamAPI_ISteamUtils_GetImageRGBA");
+	f.universe = (TabSteamUniFn)GetProcAddress(api, "SteamAPI_ISteamUtils_GetConnectedUniverse");
+	// RequestUserInformation is required: without it Medium may be the grey "?"
+	// while persona is still loading, and we would wrongly commit that tile.
+	if (!f.friends || !f.utils || !f.req || !f.medium || !f.size || !f.rgba) {
+		g_tabSteamFns.bindFailed = true;
+		return false;
 	}
-	*friends = fr;
-	*utils = ut;
+	f.ready = true;
+	g_tabSteamFns = f;
 	return true;
 }
 
 static int TabSteamUniverse(void* ut) {
 	if (g_tbSteamUniverse >= 1 && g_tbSteamUniverse <= 4) return g_tbSteamUniverse;
 	int u = 1;
-	if (g_tabSteamFns.universe) {
+	if (ut && g_tabSteamFns.universe) {
 		__try {
 			const int got = g_tabSteamFns.universe(ut);
 			if (got >= 1 && got <= 4) u = got;
@@ -48096,19 +48099,23 @@ static int TabSteamUniverse(void* ut) {
 	return u;
 }
 
+static uint64_t TabSteamId64(uint32_t acct, int uni) {
+	const uint32_t hi = ((uint32_t)uni << 24) | 0x00100001u;
+	return (uint64_t)acct | ((uint64_t)hi << 32);
+}
+
 // 1 = RGBA ready (imgOut set), 0 = pending, -1 = unavailable.
-// Poll Medium every time (drives Steam's avatar download). Commit only after
-// Request says local persona data is ready — otherwise the grey "?" is cached.
 static int TabAvatarFetchOne(void* fr, void* ut, uint32_t acct, int uni,
 	unsigned char* out, int* w, int* h, int* imgOut) {
 	const TabSteamFns& f = g_tabSteamFns;
-	if (!f.ready) return -1;
+	if (!f.ready || !fr || !ut) return -1;
 	if (imgOut) *imgOut = 0;
-	const uint32_t sidHi = ((uint32_t)uni << 24) | 0x00100001u;
+	const uint64_t sid = TabSteamId64(acct, uni);
 	__try {
-		const bool waiting = f.req(fr, acct, sidHi, false);
-		int img = f.medium(fr, acct, sidHi);
-		if (img <= 0 && f.smallAv) img = f.smallAv(fr, acct, sidHi);
+		const bool waiting = f.req(fr, sid, false);
+		int img = f.medium(fr, sid);
+		if (img <= 0 && f.smallAv) img = f.smallAv(fr, sid);
+		// Persona still loading: Medium may be the grey "?" default — do not commit.
 		if (waiting || img <= 0) return 0;
 		uint32_t iw = 0, ih = 0;
 		if (!f.size(ut, img, &iw, &ih) || iw == 0 || ih == 0
@@ -48129,9 +48136,16 @@ static int TabAvatarFetchOne(void* fr, void* ut, uint32_t acct, int uni,
 static void TabAvatarFetch(int maxWork) {
 	if (!(g_optTabBoard || g_optChapStats) || !g_engine || !EngInGame() || EngDrawingLoading()) return;
 	if (maxWork < 1) maxWork = 1;
+	if (!TabSteamBind()) return;
 	void* fr = nullptr;
 	void* ut = nullptr;
-	if (!TabSteamIfaces(&fr, &ut)) return;
+	__try {
+		fr = g_tabSteamFns.friends();
+		ut = g_tabSteamFns.utils();
+	} __except (EXCEPTION_EXECUTE_HANDLER) {
+		return;
+	}
+	if (!fr || !ut) return;
 	const DWORD now = GetTickCount();
 	const int uni = TabSteamUniverse(ut);
 
@@ -48881,6 +48895,54 @@ static void TbFillRound(int x0, int y0, int x1, int y1, int rad, int r, int g, i
 	}
 }
 
+// Temp HP inside the pill track: warm amber body + \ slash hatch.
+// Distinct from solid HP and from the old low-contrast grey wash.
+static void TbPaintTempHpSeg(int x0, int y0, int x1, int y1) {
+	if (x1 <= x0 || y1 <= y0) return;
+	const int w = x1 - x0;
+	const int h = y1 - y0;
+	TbFill(x0, y0, x1, y1, 228, 148, 36, 205);
+	if (h >= 4)
+		TbFill(x0, y0, x1, y0 + 1, 255, 214, 120, 100);
+	if (h >= 5)
+		TbFill(x0, y1 - 1, x1, y1, 168, 96, 20, 90);
+	const int pitch = h >= 7 ? 4 : 3;
+	auto slash = [&](int r, int g, int b, int a, int shift) {
+		SurfColor(r, g, b, a);
+		for (int i = -h + shift; i < w; i += pitch) {
+			int ax = x0 + i;
+			int ay = y0;
+			int bx = x0 + i + h - 1;
+			int by = y1 - 1;
+			if (bx < x0 || ax >= x1) continue;
+			if (ax < x0) {
+				const int d = x0 - ax;
+				ax = x0;
+				ay += d;
+			}
+			if (bx >= x1) {
+				const int d = bx - (x1 - 1);
+				bx = x1 - 1;
+				by -= d;
+			}
+			if (ay < y0) {
+				const int d = y0 - ay;
+				ay = y0;
+				ax += d;
+			}
+			if (by >= y1) {
+				const int d = by - (y1 - 1);
+				by = y1 - 1;
+				bx -= d;
+			}
+			if (ax > bx || ay > by || ax < x0 || bx >= x1 || ay < y0 || by >= y1) continue;
+			SurfLine(ax, ay, bx, by);
+		}
+	};
+	slash(255, 232, 168, 230, 0);
+	if (h >= 6) slash(255, 200, 96, 140, 1);
+}
+
 static int TbTextY(int cy, int px) { return cy - px / 2 - 1; }
 
 static void TbText(unsigned long font, int x, int cy, int px, COLORREF c, const wchar_t* t) {
@@ -49324,25 +49386,44 @@ static void TabBoardPaint() {
 			if (cap < 1) cap = 1;
 			if (val < 0) val = 0;
 			if (val > cap) val = cap;
-			const int wHp = (int)((long long)bw * val / cap);
-			if (!r.dead && wHp > 0) TbFillRound(bx, by, bx + wHp, by + bh, bh / 2, fr, fg, fb, 255);
+			int tmp = 0;
 			if (!inf && !r.dead && !r.incap && !r.hanging && r.tempHp > 0) {
-				int tmp = r.tempHp;
+				tmp = r.tempHp;
 				if (val + tmp > cap) tmp = cap - val;
-				const int wT = (int)((long long)bw * tmp / cap);
-				if (wT > 0) TbFill(bx + wHp, by + 1, bx + wHp + wT, by + bh - 1, 200, 214, 210, 150);
 			}
-			wchar_t num[24]{};
-			if (r.dead) wcscpy_s(num, 24, L"\x2014");
-			else swprintf_s(num, 24, L"%d", r.hp);
+			const int wHp = (int)((long long)bw * val / cap);
+			const int wT = (int)((long long)bw * tmp / cap);
+			if (!r.dead && wHp > 0) {
+				TbFillRound(bx, by, bx + wHp, by + bh, bh / 2, fr, fg, fb, 255);
+				// Square the right join when temp follows — rounded solid alone leaves a gap.
+				if (wT > 0) {
+					int rr = bh / 2;
+					if (rr > 10) rr = 10;
+					if (rr > wHp / 2) rr = wHp / 2;
+					if (rr > 0) TbFill(bx + wHp - rr, by, bx + wHp, by + bh, fr, fg, fb, 255);
+				}
+			}
+			if (wT > 0)
+				TbPaintTempHpSeg(bx + wHp, by, bx + wHp + wT, by + bh);
 			const int nx = bx + bw + U(10);
 			const COLORREF numC = r.dead ? cDim : RGB(fr, fg, fb);
-			TbText(g_tbFontNum, nx, cy, g_tbPxName, numC, num);
-			if (!inf && !r.dead && !r.incap && !r.hanging && r.tempHp > 0) {
-				wchar_t t[16]{};
-				swprintf_s(t, 16, L"+%d", r.tempHp);
-				TbText(g_tbFontSmall, nx + SurfTextWFont(g_tbFontNum, num) + U(4), cy + U(1), g_tbPxSmall,
-					RGB(176, 206, 198), t);
+			if (r.dead) {
+				TbText(g_tbFontNum, nx, cy, g_tbPxName, numC, L"\x2014");
+			} else {
+				wchar_t num[16]{};
+				swprintf_s(num, 16, L"%d", val + tmp);
+				TbText(g_tbFontNum, nx, cy, g_tbPxName, numC, num);
+				if (tmp > 0) {
+					wchar_t left[20]{}, mid[12]{};
+					swprintf_s(left, 20, L"(%d+", val);
+					swprintf_s(mid, 12, L"%d", tmp);
+					int x = nx + SurfTextWFont(g_tbFontNum, num) + U(3);
+					TbText(g_tbFontSmall, x, cy, g_tbPxSmall, numC, left);
+					x += SurfTextWFont(g_tbFontSmall, left);
+					TbText(g_tbFontSmall, x, cy, g_tbPxSmall, RGB(255, 198, 96), mid);
+					x += SurfTextWFont(g_tbFontSmall, mid);
+					TbText(g_tbFontSmall, x, cy, g_tbPxSmall, numC, L")");
+				}
 			}
 			if (pip) {
 				const int py = by + bh + U(4), ps = U(6);
@@ -60226,6 +60307,8 @@ static bool FpbSaveProfiles() {
 static void __fastcall Hooked_FpbStudio(void* self, void*, void* results, const void* info,
 	float (*bones)[3][4], float* flex, float* delayed, const float* origin, int flags);
 
+// Defined after skeeto_script_extras.h (same TU; shares m_MoveType resolve).
+static bool FpbLocalOnLadder();
 static bool FpbWanted() {
 	return g_fpb.enabled && g_run.load(std::memory_order_relaxed) && SkeetoFeaturesOn();
 }
@@ -60466,6 +60549,14 @@ static void FpbPaintPump() {
 		g_fpbWorldBody = false;
 		FpbSetGate(false);
 		std::snprintf(g_fpbStatus, sizeof(g_fpbStatus), "非正常存活本机求生者：不修改原生绘制");
+		return;
+	}
+	if (g_fpb.hideOnLadder && FpbLocalOnLadder()) {
+		g_fpbDecorate = false;
+		g_fpbLocalEnt = nullptr;
+		g_fpbWorldBody = false;
+		FpbSetGate(false);
+		std::snprintf(g_fpbStatus, sizeof(g_fpbStatus), "爬梯：隐藏第一人称身体");
 		return;
 	}
 	const bool shoulderOn = FpbShoulderThirdPerson();
@@ -68579,6 +68670,10 @@ static void OnWitchKillFx(void* ev) {
 }
 
 #include "skeeto_script_extras.h"
+
+static bool FpbLocalOnLadder() {
+	return ScriptExtrasLocalOnLadder();
+}
 
 static void OnDeath(void* ev) {
 	RefreshLocalUserId();

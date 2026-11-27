@@ -175,6 +175,17 @@ static void ScriptExtrasPaintParry() {
 	ScriptExtrasStartParrySlow();
 }
 
+// MOVETYPE_LADDER == 9. Shared by ladder footsteps and FPB hide-on-ladder;
+// does not depend on g_optLadderStep.
+static bool ScriptExtrasLocalOnLadder() {
+	ScriptExtrasResolve();
+	if (g_scriptMoveTypeOff < 0) return false;
+	const int local = EngLocal();
+	void* me = local > 0 ? EntGet(local) : nullptr;
+	unsigned char moveType = 0;
+	return EntRead(me, g_scriptMoveTypeOff, &moveType) && moveType == 9;
+}
+
 static void ScriptExtrasPaintLadder() {
 	if (!g_optLadderStep) return;
 	static DWORD s_next = 0;
@@ -193,11 +204,10 @@ static void ScriptExtrasPaintLadder() {
 	void* me = local > 0 ? EntGet(local) : nullptr;
 	int team = 0;
 	unsigned char life = 1;
-	unsigned char moveType = 0;
 	float vel[3]{};
 	if (!EntRead(me, g_offTeam, &team) || team != 2) return;
 	if (!EntRead(me, g_offLifeState, &life) || life != 0) return;
-	if (!EntRead(me, g_scriptMoveTypeOff, &moveType) || moveType != 9) return;
+	if (!ScriptExtrasLocalOnLadder()) return;
 	if (!EntReadBlock(me, g_offAbsVelocity, vel, sizeof(vel))) return;
 	const float speed2 = vel[0] * vel[0] + vel[1] * vel[1] + vel[2] * vel[2];
 	if (speed2 <= 25.f) return;
